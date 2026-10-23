@@ -104,3 +104,10 @@ in [decisions.md](decisions.md), the build order and status in [plan.md](plan.md
 - **Not yet verified:** because the tests ran with the null RHI, Unreal hasn't compiled the
   plugin's shaders and nothing has been rendered. The importer and placing an actor haven't been
   exercised in the editor either.
+
+### Published
+
+- Created the public repository **https://github.com/dewilkinson/UE5Splats** (D17) and pushed
+  `master`. GitHub reports it as public with the Apache License 2.0 detected; all three commits
+  carry the noreply address, and none of the 72 published files is codec source, a codec binary
+  or build output.
