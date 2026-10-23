@@ -22,6 +22,8 @@ static TAutoConsoleVariable<int32> CVarSurfelsMeshShaders(
 	TEXT("0 = always use the instanced vertex-shader fallback."),
 	ECVF_RenderThreadSafe);
 
+DEFINE_LOG_CATEGORY_STATIC(LogSurfelsRendering, Log, All);
+
 namespace
 {
 	TArray<FSurfelDrawable*> GRegisteredDrawables;
@@ -30,9 +32,20 @@ namespace
 
 	bool UseMeshShaders(const FViewInfo& View)
 	{
-		return CVarSurfelsMeshShaders.GetValueOnRenderThread() != 0
-			&& GRHISupportsMeshShadersTier1
-			&& RHISupportsMeshShadersTier1(View.GetShaderPlatform());
+		const bool bRequested = CVarSurfelsMeshShaders.GetValueOnRenderThread() != 0;
+		const bool bGPU = GRHISupportsMeshShadersTier1 != 0;
+		const bool bPlatform = RHISupportsMeshShadersTier1(View.GetShaderPlatform());
+		const bool bUse = bRequested && bGPU && bPlatform;
+
+		// Log the path whenever it changes, so captures and bug reports say which one drew.
+		static int32 LastPath = -1;
+		if (LastPath != (int32)bUse)
+		{
+			LastPath = (int32)bUse;
+			UE_LOG(LogSurfelsRendering, Log, TEXT("Drawing surfels with %s (r.Surfels.MeshShaders=%d, GPU Mesh Shader Tier 1=%d, platform=%d)"),
+				bUse ? TEXT("amplification + mesh shaders") : TEXT("the vertex-shader fallback"), bRequested ? 1 : 0, bGPU ? 1 : 0, bPlatform ? 1 : 0);
+		}
+		return bUse;
 	}
 }
 

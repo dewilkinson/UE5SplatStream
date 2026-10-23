@@ -121,3 +121,30 @@ in [decisions.md](decisions.md), the build order and status in [plan.md](plan.md
 - So UE5Splats' public route (stage splatlab's prebuilt library with `BuildCodec.ps1`) can't link
   on UE 5.8's toolsets yet. The builds and tests above used a codec built from source with 14.44.
   The README now states this as a known issue.
+
+### First render check (step 1 seen working)
+
+- Added `Scripts/RenderCheck.ps1` / `RenderCheck.py`: the editor runs off-screen on D3D12, imports
+  `dwarves` (splat records) and `venus` (8-byte surfels), places each in a lit level with a cube
+  in front of part of the model, and captures it through a SceneCapture2D on the mesh-shader path,
+  the vertex-shader fallback, and with the model hidden. `Scripts/CompareCaptures.ps1` measures the
+  differences. The plugin now logs which path draws (`LogSurfelsRendering`).
+- **Hardware run** (AMD Radeon integrated graphics of the Ryzen 9 7950X3D, D3D12, SM6):
+  - Both samples render. `dwarves` shows the gnomes upright, so the Y-up to Z-up conversion
+    works, in their colours, at the coarsest level (25,830 surfels).
+  - Depth occlusion works: the cube hides the part of the model behind it, and the cube region
+    is unchanged against the baseline.
+  - This GPU reports **Mesh Shader Tier 0** (feature level 12_1; confirmed by querying the D3D12
+    driver directly), so both captures used the vertex-shader fallback.
+- **WARP run** (`RenderCheck.ps1 -Warp`, Microsoft's software rasterizer, which reports Mesh Shader
+  Tier 1): the mesh-shader path and the fallback both ran, and their captures are pixel-identical
+  for both samples. They also match the hardware render closely (20.06% against 20.03% of pixels
+  changed for `dwarves`). So the mesh path draws correctly. Its performance on real hardware is
+  still untested. The WARP editor exited with an access violation after the log closed, during
+  WARP teardown; no Unreal crash report was written.
+- **Found: the scans render too dark.** `venus` is nearly black and `dwarves` dimmer than its
+  stored colours, although the decoded colours are right (`venus` mean RGB 0.43 / 0.38 / 0.32,
+  `dwarves` 0.58 / 0.55 / 0.41). The plugin writes stored colours into scene colour as linear,
+  pre-exposed values, the equivalent of a faint emissive surface, and Unreal's exposure for a
+  sunlit scene darkens them. 8-byte surfels also get surfels' fixed key light (x0.35 to 1).
+  How baked splat colours should relate to Unreal's exposure is an open design question.

@@ -52,6 +52,10 @@ tests also build and run outside Unreal (see Testing).
   - `Surfels.Package.Samples.<name>` decodes the coarsest and finest levels of every package
     under `C:/github/surfels/assets` (set `SURFELS_REPO` to a surfels or splatlab checkout) and
     checks every position against the header bounds.
+- `Scripts/RenderCheck.ps1` renders `dwarves` and `venus` in the editor on the GPU (off-screen) on
+  both paths and with the model hidden; `Scripts/CompareCaptures.ps1` compares the captures.
+  `-Warp` uses Microsoft's software rasterizer, which supports mesh shaders, for GPUs that don't.
+  The log line `LogSurfelsRendering: Drawing surfels with ...` says which path drew.
 - Before the engine was installed, both suites were run natively against the same source
   (MSVC `/W4 /WX`) and passed for all four bundled scans. The four shader entry points
   (`as_6_5`, `ms_6_5`, `vs_6_0`, `ps_6_0`) compile and validate with the Windows SDK's DXC.

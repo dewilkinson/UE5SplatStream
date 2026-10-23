@@ -21,7 +21,7 @@ been built against Unreal), *Done* (built, tested, and seen working in the engin
 
 ### Step 1: one resident level as opaque discs
 
-**Status:** In progress: builds and passes its tests on UE 5.8.4; rendering not yet verified.
+**Status:** Renders on UE 5.8.4: both record formats, depth occlusion against scene meshes, fallback path on hardware, mesh path verified on WARP.
 
 - `.sflw` import into a `USurfelAsset` (D8); `USurfelComponent` / `ASurfelActor`; scene proxy.
 - One level resident (coarsest by default), split into 64-surfel meshlets.
@@ -30,8 +30,8 @@ been built against Unreal), *Done* (built, tested, and seen working in the engin
 - Both record formats: 8-byte surfels and 20-byte splat records (drawn as discs, DC colour).
 - Tests: synthetic package round-trips and corruption checks; all bundled scans decode in bounds.
 
-**Remaining:** compile the shaders on a real GPU (D3D12, SM6), import a sample, place a Surfel
-Actor and see it render, on both the mesh-shader and fallback paths.
+**Remaining:** decide how splat colours relate to exposure (open question below); time the mesh path
+on a GPU with Mesh Shader Tier 1.
 
 ### Step 1b: discs into the GBuffer
 
@@ -91,6 +91,10 @@ Actor and see it render, on both the mesh-shader and fallback paths.
 
 ## Open questions
 
+- **Exposure of baked colours** (journal, first render check): stored splat colours render too dark under
+  Unreal's exposure. Options: display them at their stored colour whatever the exposure (divide by
+  the exposure scale), or treat them as emissive with a brightness control. Discs moving into the
+  GBuffer (step 1b) are lit by Unreal and need neither.
 - **Codec toolset** (journal, 2026-10-23): splatlab's prebuilt codec is built with MSVC 14.51, newer
   than UE 5.8's supported 14.44 and 14.50, so the public codec route doesn't link yet. Fix: publish
   the prebuilt library built with the oldest supported toolset (14.44).

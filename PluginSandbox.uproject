@@ -8,6 +8,8 @@
 	],
 	"Plugins": [
 		{ "Name": "UE5Splats", "Enabled": true },
-		{ "Name": "AndroidFileServer", "Enabled": false }
+		{ "Name": "AndroidFileServer", "Enabled": false },
+		{ "Name": "PythonScriptPlugin", "Enabled": true },
+		{ "Name": "EditorScriptingUtilities", "Enabled": true }
 	]
 }
