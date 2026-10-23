@@ -9,4 +9,4 @@ be written from it.
 | [plan.md](plan.md) | Build order, the status of each step, reminders and open questions | Updated in place whenever scope or status changes |
 | [journal.md](journal.md) | Dated record of what was done, what was found and how it was verified | Append only, newest last |
 
-Implementation details of the plugin itself are in [Plugins/Surfels/README.md](../Plugins/Surfels/README.md).
+Implementation details of the plugin itself are in [Plugins/UE5Splats/README.md](../Plugins/UE5Splats/README.md).

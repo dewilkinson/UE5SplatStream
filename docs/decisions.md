@@ -192,3 +192,24 @@ how it was verified).
 - **Date:** 2026-10-23. **Status:** Proposed (raised with D12; would be scheduled with step 4).
 - **Decision:** surfels' error threshold and splat budget become `r.Surfels.*` console variables
   that Unreal's scalability groups and screen percentage can drive.
+
+## D17. Publish as the public UE5Splats repository
+
+- **Date:** 2026-10-23. **Status:** Agreed.
+- **Decision:**
+  - The whole sandbox (host project, plugin, scripts, docs) is published as a **public** GitHub
+    repository, `dewilkinson/UE5Splats`, under **Apache-2.0** (the same licence as surfels and
+    splatlab).
+  - The plugin is renamed from `Surfels` to **UE5Splats** (folder, `.uplugin`, plugin lookup and
+    the `/Plugin/UE5Splats` shader path). Module names keep the `Surfels` prefix (they name the
+    technology, not the product).
+  - The starter `MyPlugin` is removed.
+  - Commits carry the GitHub noreply address, so no personal email is published; local history
+    was rewritten before the first push.
+- **Why public is safe for the codec:** the repository never contains bluesec-codec source or
+  binaries (D7). Everything the docs say about it (its API names, the streaming scheduler, the
+  bounding octahedron, the detail grid) is already public in the splatlab mirror.
+- **Consequence:** public users get the codec from splatlab, not the private surfels repo.
+  `BuildCodec.ps1 -CodecRepo <splatlab>` copies splatlab's prebuilt library (Git LFS), and builds
+  from source only when it's missing. The open stand-in codec can't decode real packages.
+- **Supersedes:** the earlier recommendation to keep the repository private.

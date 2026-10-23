@@ -7,6 +7,7 @@
 
 #include "CoreMinimal.h"
 #include "GlobalShader.h"
+#include "ShaderCompilerCore.h"
 #include "ShaderParameterStruct.h"
 #include "RenderGraphResources.h"
 

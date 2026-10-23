@@ -10,10 +10,10 @@
 #include "RenderGraphUtils.h"
 #include "SceneRendering.h"
 
-IMPLEMENT_GLOBAL_SHADER(FSurfelDiscAS, "/Plugin/Surfels/Private/SurfelsDisc.usf", "MainAS", SF_Amplification);
-IMPLEMENT_GLOBAL_SHADER(FSurfelDiscMS, "/Plugin/Surfels/Private/SurfelsDisc.usf", "MainMS", SF_Mesh);
-IMPLEMENT_GLOBAL_SHADER(FSurfelDiscVS, "/Plugin/Surfels/Private/SurfelsDisc.usf", "MainVS", SF_Vertex);
-IMPLEMENT_GLOBAL_SHADER(FSurfelDiscPS, "/Plugin/Surfels/Private/SurfelsDisc.usf", "MainPS", SF_Pixel);
+IMPLEMENT_GLOBAL_SHADER(FSurfelDiscAS, "/Plugin/UE5Splats/Private/SurfelsDisc.usf", "MainAS", SF_Amplification);
+IMPLEMENT_GLOBAL_SHADER(FSurfelDiscMS, "/Plugin/UE5Splats/Private/SurfelsDisc.usf", "MainMS", SF_Mesh);
+IMPLEMENT_GLOBAL_SHADER(FSurfelDiscVS, "/Plugin/UE5Splats/Private/SurfelsDisc.usf", "MainVS", SF_Vertex);
+IMPLEMENT_GLOBAL_SHADER(FSurfelDiscPS, "/Plugin/UE5Splats/Private/SurfelsDisc.usf", "MainPS", SF_Pixel);
 
 static TAutoConsoleVariable<int32> CVarSurfelsMeshShaders(
 	TEXT("r.Surfels.MeshShaders"),
@@ -114,10 +114,10 @@ void FSurfelDrawable::AddDiscPass(FRDGBuilder& GraphBuilder, const FViewInfo& Vi
 	FSurfelDiscParameters* Parameters = GraphBuilder.AllocParameters<FSurfelDiscParameters>();
 	Parameters->Records = GraphBuilder.CreateSRV(Records);
 	Parameters->Meshlets = GraphBuilder.CreateSRV(Meshlets);
-	Parameters->ModelToClip = FMatrix44f(ModelToTranslatedWorld * View.ViewMatrices.GetTranslatedViewProjectionMatrix());
-	Parameters->CamRightModel = FVector3f(WorldToModel.TransformVector(View.GetViewRight()).GetSafeNormal());
-	Parameters->CamUpModel = FVector3f(WorldToModel.TransformVector(View.GetViewUp()).GetSafeNormal());
-	Parameters->EyeModel = FVector3f(WorldToModel.TransformPosition(View.ViewMatrices.GetViewOrigin()));
+	Parameters->ModelToClip = FMatrix44f(ModelToTranslatedWorld * View.ViewMatrices.GetTranslatedWorldToClip());
+	Parameters->CamRightModel = FVector3f(FVector(WorldToModel.TransformVector(View.GetViewRight())).GetSafeNormal());
+	Parameters->CamUpModel = FVector3f(FVector(WorldToModel.TransformVector(View.GetViewUp())).GetSafeNormal());
+	Parameters->EyeModel = FVector3f(FVector(WorldToModel.TransformPosition(View.ViewMatrices.GetViewOrigin())));
 	Parameters->SplatScale = Settings.SplatScale;
 	Parameters->LevelRadius = Data.PointSpacing * Settings.Coverage;
 	// Clip w is view depth in world units (cm); the shaders' pixel-size rules want model units.

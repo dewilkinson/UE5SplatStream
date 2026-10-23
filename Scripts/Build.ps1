@@ -1,9 +1,9 @@
-# Generates project files and builds the editor target (includes MyPlugin and Surfels).
+# Generates project files and builds the editor target (includes the UE5Splats plugin).
 param([string]$Config = "Development")
 $ErrorActionPreference = "Stop"
 
-# Surfels links the proprietary codec, staged from the surfels repo (gitignored here).
-if (-not (Test-Path "$PSScriptRoot\..\Plugins\Surfels\Source\ThirdParty\BluesecCodec\lib\Win64\bluesec-codec.lib")) {
+# UE5Splats links the proprietary codec, staged from the surfels repo (gitignored here).
+if (-not (Test-Path "$PSScriptRoot\..\Plugins\UE5Splats\Source\ThirdParty\BluesecCodec\lib\Win64\bluesec-codec.lib")) {
 	& "$PSScriptRoot\BuildCodec.ps1"
 	if ($LASTEXITCODE) { exit $LASTEXITCODE }
 }

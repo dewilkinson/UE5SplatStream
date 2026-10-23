@@ -1,13 +1,13 @@
 {
 	"FileVersion": 3,
-	"EngineAssociation": "",
+	"EngineAssociation": "5.8",
 	"Category": "",
-	"Description": "Host project for developing and testing MyPlugin and the Surfels renderer plugin",
+	"Description": "Host project for developing and testing the UE5Splats plugin",
 	"Modules": [
 		{ "Name": "PluginSandbox", "Type": "Runtime", "LoadingPhase": "Default" }
 	],
 	"Plugins": [
-		{ "Name": "MyPlugin", "Enabled": true },
-		{ "Name": "Surfels", "Enabled": true }
+		{ "Name": "UE5Splats", "Enabled": true },
+		{ "Name": "AndroidFileServer", "Enabled": false }
 	]
 }

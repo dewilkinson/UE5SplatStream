@@ -14,14 +14,14 @@ been built against Unreal), *Done* (built, tested, and seen working in the engin
 | Plugin sandbox project (`PluginSandbox`) with build, test and package scripts | Done |
 | surfels repo cloned with LFS assets and the Cauldron submodule (`C:\github\surfels`) | Done |
 | bluesec-codec builds and stages into the plugin (D7) | Done |
-| Unreal Engine 5.8 installed from the Epic Games Launcher | In progress (downloading) |
-| First build of the plugin against the installed engine | Not started (needs the engine) |
+| Unreal Engine 5.8.4 installed from the Epic Games Launcher | Done |
+| First build of the plugin against the installed engine | Done: builds without warnings; 5/5 automation tests pass |
 
 ## Build order
 
 ### Step 1: one resident level as opaque discs
 
-**Status:** Written, not compiled. Staged in git, not committed (waiting on the user).
+**Status:** In progress: builds and passes its tests on UE 5.8.4; rendering not yet verified.
 
 - `.sflw` import into a `USurfelAsset` (D8); `USurfelComponent` / `ASurfelActor`; scene proxy.
 - One level resident (coarsest by default), split into 64-surfel meshlets.
@@ -30,8 +30,8 @@ been built against Unreal), *Done* (built, tested, and seen working in the engin
 - Both record formats: 8-byte surfels and 20-byte splat records (drawn as discs, DC colour).
 - Tests: synthetic package round-trips and corruption checks; all bundled scans decode in bounds.
 
-**Remaining:** first compile against the installed engine (the UE APIs most likely to need
-adjusting are listed in `Plugins/Surfels/README.md`), then see it render.
+**Remaining:** compile the shaders on a real GPU (D3D12, SM6), import a sample, place a Surfel
+Actor and see it render, on both the mesh-shader and fallback paths.
 
 ### Step 1b: discs into the GBuffer
 

@@ -14,11 +14,11 @@ public:
 	virtual void StartupModule() override
 	{
 		// Must happen before the global shader map is built, hence the PostConfigInit loading phase.
-		const FString ShaderDir = FPaths::Combine(IPluginManager::Get().FindPlugin(TEXT("Surfels"))->GetBaseDir(), TEXT("Shaders"));
-		AddShaderSourceDirectoryMapping(TEXT("/Plugin/Surfels"), ShaderDir);
+		const FString ShaderDir = FPaths::Combine(IPluginManager::Get().FindPlugin(TEXT("UE5Splats"))->GetBaseDir(), TEXT("Shaders"));
+		AddShaderSourceDirectoryMapping(TEXT("/Plugin/UE5Splats"), ShaderDir);
 
 		// View extensions need the engine's renderer, which exists only once the engine is up.
-		PostEngineInitHandle = FCoreDelegates::OnPostEngineInit.AddLambda([this]()
+		PostEngineInitHandle = FCoreDelegates::GetOnPostEngineInit().AddLambda([this]()
 		{
 			ViewExtension = FSceneViewExtensions::NewExtension<FSurfelViewExtension>();
 		});
@@ -26,7 +26,7 @@ public:
 
 	virtual void ShutdownModule() override
 	{
-		FCoreDelegates::OnPostEngineInit.Remove(PostEngineInitHandle);
+		FCoreDelegates::GetOnPostEngineInit().Remove(PostEngineInitHandle);
 		ViewExtension.Reset();
 	}
 

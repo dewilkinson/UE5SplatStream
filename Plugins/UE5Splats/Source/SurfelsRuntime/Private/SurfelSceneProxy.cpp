@@ -54,8 +54,8 @@ bool FSurfelSceneProxy::IsVisibleInView(const FSceneView& View) const
 	{
 		return false;
 	}
-	const FBoxSphereBounds& Bounds = GetBounds();
-	return View.ViewFrustum.IntersectBox(Bounds.Origin, Bounds.BoxExtent);
+	const FBoxSphereBounds& PrimitiveBounds = GetBounds();
+	return View.ViewFrustum.IntersectBox(PrimitiveBounds.Origin, PrimitiveBounds.BoxExtent);
 }
 
 FMatrix FSurfelSceneProxy::GetModelToWorld() const

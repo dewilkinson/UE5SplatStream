@@ -78,3 +78,29 @@ in [decisions.md](decisions.md), the build order and status in [plan.md](plan.md
   `C:\Program Files\Epic Games\UE_5.8`. 5.8 is newer than the engine versions step 1 was written
   against, so the Unreal API calls listed in `Plugins/Surfels/README.md` are the first things to
   check when it compiles.
+
+### Engine installed; first build and tests on UE 5.8.4
+
+- UE **5.8.4** (changelist 58902052) finished installing at `C:\Program Files\Epic Games\UE_5.8`.
+  The project's engine association is now `5.8`.
+- Repository prepared for publishing as `dewilkinson/UE5Splats` (D17): the plugin was renamed
+  from `Surfels` to `UE5Splats` (so paths in earlier entries now read `Plugins/UE5Splats/...`),
+  `MyPlugin` was removed, an Apache-2.0 `LICENSE` and a root README were added, and the two local
+  commits were rewritten to the GitHub noreply identity before any push. `BuildCodec.ps1` now
+  also accepts a splatlab clone and copies its prebuilt codec.
+- **First build:** failed with five errors, all in plugin code:
+  - Three were UE 5.8 API changes: `CFLAG_ForceDXC` needs `ShaderCompilerCore.h`,
+    `GetParameters()` returns a wrapper (`GetContents()`), and `FMatrix` transforms return
+    `FVector4`.
+  - One was a shadowed member name (`Bounds`, C4458).
+  - Two deprecations were also fixed: `GetTranslatedWorldToClip`, `GetOnPostEngineInit()`.
+  - The mesh-shader pipeline setup, `DispatchMeshShader` and the scene-proxy signature, flagged
+    as the main risks, compiled as written.
+- **Second build:** succeeded with no compiler warnings (editor target, Win64 Development).
+- **Automation tests in the editor** (`Scripts/Test.ps1 -Filter Surfels`, headless, null RHI):
+  5 of 5 passed in 1.7 s: `Surfels.Package.Synthetic` and `Surfels.Package.Samples` for cthulu,
+  dwarves, strawberry and venus. All three plugin modules loaded, `SurfelsRendering` at
+  `PostConfigInit`, with no plugin warnings in the log.
+- **Not yet verified:** because the tests ran with the null RHI, Unreal hasn't compiled the
+  plugin's shaders and nothing has been rendered. The importer and placing an actor haven't been
+  exercised in the editor either.

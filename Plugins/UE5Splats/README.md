@@ -1,7 +1,7 @@
-# Surfels for Unreal
+# UE5Splats
 
-Renders surfels `.sflw` packages (surfel and Gaussian splat scans) inside Unreal's renderer.
-A port of the DX12 renderer in [surfels](https://github.com/dewilkinson/surfels), following the
+Renders `.sflw` packages (surfel and Gaussian splat scans) inside Unreal's renderer.
+A port of the DX12 renderer in [splatlab](https://github.com/dewilkinson/splatlab), following the
 design record in [docs/](../../docs/README.md): decisions, plan and journal.
 
 ## Status: step 1 (opaque discs, one resident level)
@@ -32,11 +32,13 @@ tests also build and run outside Unreal (see Testing).
 
 ## Building
 
-1. `Scripts/BuildCodec.ps1` builds `libs/bluesec-codec` from `C:\github\surfels` (pass
-   `-SurfelsRepo` for another path) and stages the headers and Release `.lib` into
-   `Source/ThirdParty/BluesecCodec/`. Those files are proprietary and **gitignored**; never commit
-   them here. `Scripts/Build.ps1` runs it automatically when the library is missing.
-2. `Scripts/Build.ps1` builds the editor target.
+1. `Scripts/BuildCodec.ps1 -CodecRepo <checkout>` stages bluesec-codec into
+   `Source/ThirdParty/BluesecCodec/`: from a splatlab clone it copies the prebuilt library, from
+   the private surfels repo it builds the library from source. The staged files aren't covered by
+   this repository's licence and are **gitignored**; never commit them. `Scripts/Build.ps1` runs it
+   automatically when the library is missing.
+2. `Scripts/Build.ps1` builds the editor target. UE 5.8 or newer is required (the code uses
+   5.8 APIs such as `GetTranslatedWorldToClip` and `GetOnPostEngineInit`).
 3. The project targets DX12 with Shader Model 6 (`Config/DefaultEngine.ini`), which the mesh
    shader path needs.
 
@@ -48,27 +50,28 @@ tests also build and run outside Unreal (see Testing).
     decoding, and that corrupt files (bad magic, truncation, mismatched sizes, a future version)
     are rejected.
   - `Surfels.Package.Samples.<name>` decodes the coarsest and finest levels of every package
-    under `<surfels repo>/assets` (set `SURFELS_REPO` to point elsewhere) and checks every
-    position against the header bounds.
+    under `C:/github/surfels/assets` (set `SURFELS_REPO` to a surfels or splatlab checkout) and
+    checks every position against the header bounds.
 - Before the engine was installed, both suites were run natively against the same source
   (MSVC `/W4 /WX`) and passed for all four bundled scans. The four shader entry points
   (`as_6_5`, `ms_6_5`, `vs_6_0`, `ps_6_0`) compile and validate with the Windows SDK's DXC.
 
-## Not yet compiled against Unreal
+## Engine compatibility
 
-The engine wasn't installed when step 1 was written, so the UE-facing C++ has not been compiled.
-These are the calls most likely to need adjusting for your engine version:
+Builds without warnings against **UE 5.8.4** (editor target, Development). Bringing step 1 up on
+5.8 needed five fixes; the mesh-shader setup, `DispatchMeshShader` and the scene-proxy signature
+compiled as written:
 
-- `FPrimitiveSceneProxy::CreateRenderThreadResources`: its signature gained an
-  `FRHICommandListBase&` in 5.3; the proxy switches on `ENGINE_MINOR_VERSION`.
-- `FBoundShaderStateInput::SetAmplificationShader` / `SetMeshShader`,
-  `RHICmdList.DispatchMeshShader`, and `SetShaderParameters` on amplification and mesh shaders.
-- `FPostProcessingInputs` lives in `PostProcess/PostProcessInputs.h` or `PostProcessing.h`
-  depending on the version (handled with `__has_include`). `FViewInfo` comes from the renderer's
-  private headers (`SceneRendering.h`).
-- `SurfelsRendering` loads at `PostConfigInit` and links `Engine` for `SceneViewExtension.h`. If
-  that loads Engine too early in your version, move the view extension into `SurfelsRuntime` and
-  keep only the shaders in the early module.
+- `CFLAG_ForceDXC` now needs `ShaderCompilerCore.h`.
+- `FRDGUniformBuffer::GetParameters()` returns a wrapper; `GetContents()` gives the struct.
+- `FMatrix::TransformVector` / `TransformPosition` return `FVector4`, so they need an explicit
+  `FVector` before narrowing to `FVector3f`.
+- `GetTranslatedViewProjectionMatrix` became `GetTranslatedWorldToClip`, and
+  `FCoreDelegates::OnPostEngineInit` became `GetOnPostEngineInit()` (both deprecated in 5.8).
+- A local named `Bounds` shadowed a scene-proxy member (C4458 is an error in Unreal builds).
+
+Still to confirm at runtime: that `SurfelsRendering` loading at `PostConfigInit` while linking
+`Engine` is fine. If it isn't, move the view extension into `SurfelsRuntime`.
 
 ## Known gaps (by plan)
 

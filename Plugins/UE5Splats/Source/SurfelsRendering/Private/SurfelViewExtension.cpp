@@ -22,7 +22,7 @@ void FSurfelViewExtension::PrePostProcessPass_RenderThread(FRDGBuilder& GraphBui
 	}
 
 	const FViewInfo& ViewInfo = static_cast<const FViewInfo&>(View);
-	const FSceneTextureUniformParameters* SceneTextures = Inputs.SceneTextures->GetParameters();
+	const FSceneTextureUniformParameters* SceneTextures = Inputs.SceneTextures->GetParameters().GetContents();
 	FRDGTextureRef SceneColor = SceneTextures->SceneColorTexture;
 	FRDGTextureRef SceneDepth = SceneTextures->SceneDepthTexture;
 	if (!SceneColor || !SceneDepth)
