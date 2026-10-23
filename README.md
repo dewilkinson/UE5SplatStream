@@ -22,7 +22,9 @@ It's a port of the DirectX 12 renderer in [splatlab](https://github.com/dewilkin
 - Windows 10/11 x64 and a DirectX 12 GPU. Mesh Shader Tier 1 is used where available; older GPUs
   use the fallback path.
 - Unreal Engine 5.8 (from the Epic Games Launcher).
-- Visual Studio 2022 with the "Game development with C++" workload and the Windows SDK.
+- Visual Studio with the "Game development with C++" workload and the Windows SDK, using an MSVC
+  toolset UE 5.8 supports (14.44 from VS 2022 17.14, or 14.50 from VS 2026). See the codec
+  section for a toolset caveat.
 - Git LFS.
 
 ## The codec
@@ -44,6 +46,12 @@ library is distributed under its own binary licence
 If the prebuilt library isn't available, the script builds splatlab's open stand-in sources
 instead. The stand-in codec can't decode packages written by the real codec, so use the
 prebuilt library to load the sample scans.
+
+> **Known issue: toolset mismatch.** splatlab's current prebuilt library was compiled with MSVC
+> 14.51, and a static library has to be linked with the same MSVC version or a newer one. Linking
+> it with 14.44 (VS 2022) fails with `unresolved external symbol __std_rotate`; 14.50 is older
+> than 14.51 too, so expect the same there. Until the prebuilt library is rebuilt with an older
+> toolset, the plugin only links against a codec built from source with your own toolset.
 
 ## Building and testing
 

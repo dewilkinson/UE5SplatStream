@@ -111,3 +111,13 @@ in [decisions.md](decisions.md), the build order and status in [plan.md](plan.md
   `master`. GitHub reports it as public with the Apache License 2.0 detected; all three commits
   carry the noreply address, and none of the 72 published files is codec source, a codec binary
   or build output.
+
+### Codec toolset mismatch found
+
+- While building splatlab with VS 2022, its prebuilt `bluesec-codec.lib` failed to link
+  (`unresolved external symbol __std_rotate`). The library's embedded compiler string shows it was
+  built with **MSVC 14.51**; this machine has 14.44. A static library must be linked with the same
+  MSVC version or a newer one, and UE 5.8's supported toolsets (14.44, 14.50) are both older.
+- So UE5Splats' public route (stage splatlab's prebuilt library with `BuildCodec.ps1`) can't link
+  on UE 5.8's toolsets yet. The builds and tests above used a codec built from source with 14.44.
+  The README now states this as a known issue.

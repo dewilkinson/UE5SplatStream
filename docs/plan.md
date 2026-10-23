@@ -91,6 +91,10 @@ Actor and see it render, on both the mesh-shader and fallback paths.
 
 ## Open questions
 
+- **Codec toolset** (journal, 2026-10-23): splatlab's prebuilt codec is built with MSVC 14.51, newer
+  than UE 5.8's supported 14.44 and 14.50, so the public codec route doesn't link yet. Fix: publish
+  the prebuilt library built with the oldest supported toolset (14.44).
+
 - **Oct16 normal decoding in surfels' shader** (D11): is `Surfels.hlsl` decoding normals
   incorrectly? To be checked in the surfels repo.
 - **D16** (scalability integration) awaits the user's decision.
