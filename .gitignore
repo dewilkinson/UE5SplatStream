@@ -8,3 +8,6 @@ DerivedDataCache/
 Plugins/*/Binaries/
 Plugins/*/Intermediate/
 Packaged/
+Plugins/Surfels/Source/ThirdParty/BluesecCodec/include/
+Plugins/Surfels/Source/ThirdParty/BluesecCodec/lib/
+Plugins/Surfels/Source/ThirdParty/BluesecCodec/Intermediate/

@@ -1,0 +1,412 @@
+// SurfelsDisc.usf
+// Step 1 of the Unreal port: opaque, depth-tested discs from 8-byte surfels or 20-byte splat records.
+// Ported from Surfels.hlsl in the surfels repo (BuildSplat render modes 1 and 4, mainAS/mainMS,
+// mainVS, mainPS). Differences from the original:
+//  - Unreal matrices are row-vector: mul(float4(p, 1), ModelToClip).
+//  - Records are read from one uint buffer (WordsPerRecord words each) so both formats share a path.
+//  - Discs are hard-edged and opaque (depth write, no blending): they land in Unreal's depth buffer
+//    for TSR and occlusion. Surfels' soft blended disc edge returns with the sorted splat pass.
+//  - Oct16 normals are decoded as the two signed bytes PackNormalOct16 writes (Surfels.hlsl reads
+//    them as unsigned; see the note in the plugin docs).
+//  - Splat records draw with their DC colour only; spherical harmonics arrive with step 3.
+//  - Output is linear and pre-exposed, as Unreal's scene colour expects.
+// Chunk-level culling: frustum test in the amplification shader; the vertex fallback leaves it to
+// the rasterizer, as surfels does. Normal-cone culling arrives with step 2.
+
+#include "/Engine/Private/Common.ush"
+
+#define SURFELS_PER_GROUP 64
+#define AS_GROUP_SIZE 32
+
+struct FSurfelMeshlet
+{
+	float3 Center;
+	float  BoundingRadius;
+	float3 AabbMin;
+	uint   SurfelOffset;
+	float3 AabbExtents;
+	uint   SurfelCount;
+	float  BlendWeight;
+	uint   LodLevel;
+	float  DilationMorph;
+	float  IsSilhouette;
+	float3 ConeAxis;
+	float  ConeCutoff;
+};
+
+StructuredBuffer<uint>           Records;
+StructuredBuffer<FSurfelMeshlet> Meshlets;
+float4x4 ModelToClip;
+float3   CamRightModel;
+float    SplatScale;
+float3   CamUpModel;
+float    LevelRadius;   // Auto splat size: the level's point spacing x coverage (model units); 0 = size classes
+float3   EyeModel;
+float    ClipWToModel;  // Clip-space w (world units) to model units
+float3   QuantMin;
+uint     RecordFormat;  // 0 = 8-byte surfel, 1 = 20-byte splat record
+float3   QuantExtents;
+uint     MeshletCount;
+float3   LightDirModel;
+uint     OrientMode;    // 0 = tangent-plane disc, 1 = camera-facing billboard
+float    ScaleLog2Min;
+float    ScaleLog2Max;
+float    PreExposure;
+uint     WordsPerRecord;
+
+struct FSurfelVSOut
+{
+	float4 Position : SV_POSITION;
+	float2 UV       : TEXCOORD0;
+	float3 Color    : TEXCOORD1; // Display-space colour (as stored)
+};
+
+static const float2 QuadCorners[4] = { float2(-1.0, -1.0), float2(1.0, -1.0), float2(-1.0, 1.0), float2(1.0, 1.0) };
+static const uint QuadVertexCorner[6] = { 0, 1, 2, 1, 3, 2 };
+// A vertex the rasterizer drops: z < 0 is clipped whichever way the depth range runs.
+static const float4 CulledClipPos = float4(0.0, 0.0, -2.0, 1.0);
+// About one screen pixel of world radius per unit of distance (kPixelRadiusPerDistance in surfels).
+static const float PixelRadiusPerDistance = 0.00075;
+
+// ---------------------------------------------------------------------------------------------
+// Decode helpers
+// ---------------------------------------------------------------------------------------------
+
+uint RecordWord(uint SurfelIndex, uint Word)
+{
+	return Records[SurfelIndex * WordsPerRecord + Word];
+}
+
+float3 DecodeOct16(uint Packed)
+{
+	// Two signed bytes, as PackNormalOct16 writes them.
+	float2 E = float2((int)(Packed << 24) >> 24, (int)(Packed << 16) >> 24) / 127.0;
+	float3 V = float3(E.x, E.y, 1.0 - abs(E.x) - abs(E.y));
+	if (V.z < 0.0)
+	{
+		float2 SignNotZero = float2(V.x >= 0.0 ? 1.0 : -1.0, V.y >= 0.0 ? 1.0 : -1.0);
+		V.xy = (1.0 - abs(V.yx)) * SignNotZero;
+	}
+	return normalize(V);
+}
+
+float3 DecodeRGB565(uint Packed)
+{
+	return float3((Packed >> 11) & 0x1F, (Packed >> 5) & 0x3F, Packed & 0x1F) / float3(31.0, 63.0, 31.0);
+}
+
+float3x3 QuatToMat3(float4 Q)
+{
+	float X = Q.x, Y = Q.y, Z = Q.z, W = Q.w;
+	return float3x3(
+		1.0 - 2.0 * (Y * Y + Z * Z), 2.0 * (X * Y - W * Z),       2.0 * (X * Z + W * Y),
+		2.0 * (X * Y + W * Z),       1.0 - 2.0 * (X * X + Z * Z), 2.0 * (Y * Z - W * X),
+		2.0 * (X * Z - W * Y),       2.0 * (Y * Z + W * X),       1.0 - 2.0 * (X * X + Y * Y));
+}
+
+float3 SRGBToLinearColor(float3 C)
+{
+	float3 Lo = C / 12.92;
+	float3 Hi = pow(max(C + 0.055, 0.0) / 1.055, 2.4);
+	return float3(C.x <= 0.04045 ? Lo.x : Hi.x, C.y <= 0.04045 ? Lo.y : Hi.y, C.z <= 0.04045 ? Lo.z : Hi.z);
+}
+
+// ---------------------------------------------------------------------------------------------
+// Per-surfel disc construction (BuildSplat, render modes 1 and 4)
+// ---------------------------------------------------------------------------------------------
+
+struct FSurfelDisc
+{
+	float3 Center;
+	float3 TangentX;
+	float3 TangentY;
+	float3 Color;
+};
+
+void SplatTangents(float3 Normal, float Radius, out float3 TangentX, out float3 TangentY)
+{
+	if (OrientMode == 0 && abs(Normal.x) + abs(Normal.y) + abs(Normal.z) > 0.1)
+	{
+		float3 Up = abs(Normal.y) < 0.99 ? float3(0.0, 1.0, 0.0) : float3(1.0, 0.0, 0.0);
+		float3 TX = normalize(cross(Up, Normal));
+		TangentX = TX * Radius;
+		TangentY = cross(Normal, TX) * Radius;
+	}
+	else
+	{
+		TangentX = CamRightModel * Radius;
+		TangentY = CamUpModel * Radius;
+	}
+}
+
+// Sub-pixel discs become camera-facing dots of at least a pixel (SolidDot in surfels).
+void SolidDot(float DistToCam, inout float3 TangentX, inout float3 TangentY)
+{
+	float OnePixel = DistToCam * PixelRadiusPerDistance;
+	float Radius = max(length(TangentX), length(TangentY));
+	if (Radius < OnePixel * 1.5)
+	{
+		float R = max(Radius, OnePixel);
+		TangentX = CamRightModel * R;
+		TangentY = CamUpModel * R;
+	}
+}
+
+float AutoSplatRadius(float ClassRadius, float ClassScale)
+{
+	return (LevelRadius > 0.0) ? SplatScale * LevelRadius * min(ClassScale, 2.5) : ClassRadius;
+}
+
+bool BuildDisc(uint SurfelIndex, out FSurfelDisc Disc)
+{
+	Disc = (FSurfelDisc)0;
+	float3 Normal;
+	float Radius;
+	bool bLit;
+
+	if (RecordFormat == 0)
+	{
+		uint W0 = RecordWord(SurfelIndex, 0);
+		uint W1 = RecordWord(SurfelIndex, 1);
+		Disc.Center = QuantMin + float3(W0 & 0x3FF, (W0 >> 10) & 0x3FF, (W0 >> 20) & 0x3FF) / 1023.0 * QuantExtents;
+		Normal = DecodeOct16(W1 & 0xFFFF);
+		Disc.Color = DecodeRGB565(W1 >> 16);
+
+		uint RadiusExp = (W0 >> 30) & 0x3;
+		float RadScale = (RadiusExp == 0) ? 1.0 : (RadiusExp == 1) ? 1.5 : (RadiusExp == 2) ? 2.5 : 4.5;
+		float MaxExtent = max(QuantExtents.x, max(QuantExtents.y, QuantExtents.z));
+		float BaseVoxelRadius = max(0.0005, (MaxExtent / 1024.0) * 1.35);
+		Radius = AutoSplatRadius(SplatScale * BaseVoxelRadius * RadScale, RadScale);
+		bLit = true;
+	}
+	else
+	{
+		uint W0 = RecordWord(SurfelIndex, 0);
+		uint W1 = RecordWord(SurfelIndex, 1);
+		uint W2 = RecordWord(SurfelIndex, 2);
+		uint W3 = RecordWord(SurfelIndex, 3);
+		uint W4 = RecordWord(SurfelIndex, 4);
+
+		float Opacity = ((W2 >> 8) & 0xFF) / 255.0;
+		if (Opacity <= 1.0 / 255.0)
+		{
+			return false; // Records the sorted splat pipeline never draws
+		}
+		Disc.Center = QuantMin + float3(W0 & 0xFFFF, (W0 >> 16) & 0xFFFF, W1 & 0xFFFF) / 65535.0 * QuantExtents;
+		float3 Scale = exp2(ScaleLog2Min + (float3((W1 >> 16) & 0xFF, (W1 >> 24) & 0xFF, W2 & 0xFF) / 255.0) * (ScaleLog2Max - ScaleLog2Min));
+		Disc.Color = float3((W2 >> 16) & 0xFF, (W2 >> 24) & 0xFF, W3 & 0xFF) / 255.0;
+
+		// Smallest-three quaternion
+		uint Largest = W4 & 3u;
+		float Comps[4] = { 0.0, 0.0, 0.0, 0.0 };
+		float SumSq = 0.0;
+		uint Shift = 2;
+		[unroll]
+		for (uint i = 0; i < 4; i++)
+		{
+			if (i != Largest)
+			{
+				float V = ((((W4 >> Shift) & 0x3FFu) / 1023.0) * 2.0 - 1.0) * 0.70710678118;
+				Comps[i] = V;
+				SumSq += V * V;
+				Shift += 10;
+			}
+		}
+		Comps[Largest] = sqrt(saturate(1.0 - SumSq));
+		float3x3 R = QuatToMat3(float4(Comps[0], Comps[1], Comps[2], Comps[3]));
+
+		// The disc lies in the plane of the two largest scales (SplatRecordDisc)
+		uint K = (Scale.x <= Scale.y && Scale.x <= Scale.z) ? 0u : (Scale.y <= Scale.z ? 1u : 2u);
+		Normal = float3(R[0][K], R[1][K], R[2][K]);
+		float SMax = max(Scale.x, max(Scale.y, Scale.z));
+		float SMid = max(min(Scale.x, Scale.y), min(max(Scale.x, Scale.y), Scale.z));
+		Radius = AutoSplatRadius(2.0 * sqrt(SMax * SMid) * SplatScale, 1.0);
+		bLit = false; // Baked radiance
+	}
+
+	float4 ClipCenter = mul(float4(Disc.Center, 1.0), ModelToClip);
+	float DistToCam = max(0.1, ClipCenter.w * ClipWToModel);
+	Radius = max(Radius, DistToCam * 0.00015);
+
+	SplatTangents(Normal, Radius, Disc.TangentX, Disc.TangentY);
+	SolidDot(DistToCam, Disc.TangentX, Disc.TangentY);
+
+	if (bLit)
+	{
+		// surfels' two-sided key light; Lumen lighting through the GBuffer replaces it later
+		Disc.Color *= 0.35 + 0.65 * abs(dot(Normal, LightDirModel));
+	}
+	return true;
+}
+
+FSurfelVSOut DiscCornerVertex(FSurfelDisc Disc, uint Corner)
+{
+	float2 CC = QuadCorners[Corner];
+	FSurfelVSOut O;
+	O.Position = mul(float4(Disc.Center + Disc.TangentX * CC.x + Disc.TangentY * CC.y, 1.0), ModelToClip);
+	O.UV = CC * 0.5 + 0.5;
+	O.Color = Disc.Color;
+	return O;
+}
+
+FSurfelVSOut CulledVertex()
+{
+	FSurfelVSOut O;
+	O.Position = CulledClipPos;
+	O.UV = float2(0.0, 0.0);
+	O.Color = float3(0.0, 0.0, 0.0);
+	return O;
+}
+
+// Conservative AABB-vs-frustum test. With Unreal's reversed, infinite-far depth the two z tests
+// swap roles (z > w is in front of the near plane, z < 0 never happens), and the test stays correct.
+bool MeshletInFrustum(FSurfelMeshlet M)
+{
+	float3 BMin = M.AabbMin;
+	float3 BMax = M.AabbMin + M.AabbExtents;
+	uint OutL = 0, OutR = 0, OutB = 0, OutT = 0, OutN = 0, OutF = 0;
+	[unroll]
+	for (uint i = 0; i < 8; i++)
+	{
+		float3 P = float3((i & 1) ? BMax.x : BMin.x, (i & 2) ? BMax.y : BMin.y, (i & 4) ? BMax.z : BMin.z);
+		float4 C = mul(float4(P, 1.0), ModelToClip);
+		if (C.w > 0.0001)
+		{
+			OutL += (C.x < -C.w) ? 1 : 0;
+			OutR += (C.x >  C.w) ? 1 : 0;
+			OutB += (C.y < -C.w) ? 1 : 0;
+			OutT += (C.y >  C.w) ? 1 : 0;
+			OutN += (C.z <  0.0) ? 1 : 0;
+			OutF += (C.z >  C.w) ? 1 : 0;
+		}
+		else
+		{
+			OutN++;
+		}
+	}
+	return OutL < 8 && OutR < 8 && OutB < 8 && OutT < 8 && OutN < 8 && OutF < 8;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Mesh shader path (default wherever Mesh Shader Tier 1 is available)
+// ---------------------------------------------------------------------------------------------
+
+#if SURFELS_MESH_SHADER
+
+struct FSurfelPayload
+{
+	uint MeshletIndices[AS_GROUP_SIZE];
+};
+
+groupshared FSurfelPayload SharedPayload;
+groupshared uint SharedVisibleCount;
+
+[numthreads(AS_GROUP_SIZE, 1, 1)]
+void MainAS(uint3 GroupId : SV_GroupID, uint ThreadId : SV_GroupThreadID)
+{
+	if (ThreadId == 0)
+	{
+		SharedVisibleCount = 0;
+	}
+	GroupMemoryBarrierWithGroupSync();
+
+	// Groups past 65535 fold over y (see AddDiscPass).
+	uint MeshletIndex = (GroupId.y * 65535u + GroupId.x) * AS_GROUP_SIZE + ThreadId;
+	if (MeshletIndex < MeshletCount && MeshletInFrustum(Meshlets[MeshletIndex]))
+	{
+		uint Slot;
+		InterlockedAdd(SharedVisibleCount, 1, Slot);
+		SharedPayload.MeshletIndices[Slot] = MeshletIndex;
+	}
+	GroupMemoryBarrierWithGroupSync();
+
+	// Exactly one DispatchMesh per amplification shader (validator rule).
+	DispatchMesh(SharedVisibleCount, 1, 1, SharedPayload);
+}
+
+[numthreads(SURFELS_PER_GROUP, 1, 1)]
+[outputtopology("triangle")]
+void MainMS(
+	uint3 GroupId : SV_GroupID,
+	uint ThreadId : SV_GroupThreadID,
+	in payload FSurfelPayload Payload,
+	out indices uint3 Tris[SURFELS_PER_GROUP * 2],
+	out vertices FSurfelVSOut Verts[SURFELS_PER_GROUP * 4])
+{
+	FSurfelMeshlet M = Meshlets[Payload.MeshletIndices[GroupId.x]];
+	uint Count = min((uint)SURFELS_PER_GROUP, M.SurfelCount);
+
+	// Exactly one SetMeshOutputCounts per mesh shader (validator rule).
+	SetMeshOutputCounts(Count * 4, Count * 2);
+	if (ThreadId >= Count)
+	{
+		return;
+	}
+
+	uint VBase = ThreadId * 4;
+	uint PBase = ThreadId * 2;
+	FSurfelDisc Disc;
+	if (!BuildDisc(M.SurfelOffset + ThreadId, Disc))
+	{
+		// Degenerate triangles and zeroed vertices for a record that draws nothing.
+		Tris[PBase + 0] = uint3(0, 0, 0);
+		Tris[PBase + 1] = uint3(0, 0, 0);
+		[unroll]
+		for (uint Z = 0; Z < 4; Z++)
+		{
+			FSurfelVSOut O = CulledVertex();
+			O.Position = float4(0.0, 0.0, 0.0, 0.0);
+			Verts[VBase + Z] = O;
+		}
+		return;
+	}
+
+	[unroll]
+	for (uint C = 0; C < 4; C++)
+	{
+		Verts[VBase + C] = DiscCornerVertex(Disc, C);
+	}
+	Tris[PBase + 0] = uint3(VBase + 0, VBase + 1, VBase + 2);
+	Tris[PBase + 1] = uint3(VBase + 1, VBase + 3, VBase + 2);
+}
+
+#endif // SURFELS_MESH_SHADER
+
+// ---------------------------------------------------------------------------------------------
+// Vertex shader fallback: DrawPrimitive(0, 2, MeshletCount * 64), one instance per surfel slot
+// ---------------------------------------------------------------------------------------------
+
+void MainVS(uint VertexId : SV_VertexID, uint InstanceId : SV_InstanceID, out FSurfelVSOut Out)
+{
+	uint MeshletIndex = InstanceId / SURFELS_PER_GROUP;
+	uint Local = InstanceId - MeshletIndex * SURFELS_PER_GROUP;
+	Out = CulledVertex();
+	if (MeshletIndex >= MeshletCount)
+	{
+		return;
+	}
+	FSurfelMeshlet M = Meshlets[MeshletIndex];
+	if (Local >= M.SurfelCount)
+	{
+		return;
+	}
+	FSurfelDisc Disc;
+	if (BuildDisc(M.SurfelOffset + Local, Disc))
+	{
+		Out = DiscCornerVertex(Disc, QuadVertexCorner[VertexId % 6]);
+	}
+}
+
+// ---------------------------------------------------------------------------------------------
+// Pixel shader: hard-edged opaque disc into Unreal's linear, pre-exposed scene colour
+// ---------------------------------------------------------------------------------------------
+
+void MainPS(FSurfelVSOut In, out float4 OutColor : SV_Target0)
+{
+	float2 Centered = In.UV * 2.0 - 1.0;
+	if (dot(Centered, Centered) > 1.0)
+	{
+		discard;
+	}
+	OutColor = float4(SRGBToLinearColor(In.Color) * PreExposure, 1.0);
+}
