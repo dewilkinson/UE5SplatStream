@@ -148,3 +148,17 @@ in [decisions.md](decisions.md), the build order and status in [plan.md](plan.md
   pre-exposed values, the equivalent of a faint emissive surface, and Unreal's exposure for a
   sunlit scene darkens them. 8-byte surfels also get surfels' fixed key light (x0.35 to 1).
   How baked splat colours should relate to Unreal's exposure is an open design question.
+
+### Full-detail render and the emissive slider (2026-10-24)
+
+- Added `EmissiveIntensity` to the Surfel component (D18) and options to the render check:
+  `-Names`, `-Level`, `-Resolution`, `-Emissive "1,2,4"` and `-NoOccluder`.
+- Rendered `dwarves` at level 0 (206,722 surfels) at 1920x1080 on the hardware GPU (fallback
+  path), at emissive intensities 1, 2, 4, 8 and 16. At level 0 the discs form a near-continuous
+  surface with fine detail (the stitching on the clothes, the painted dots on the skirt). Intensity
+  2 looks closest to the stored colours.
+- **Editor exit crash isolated:** after captures at 1920x1080, and on WARP at any size, the editor
+  exits with 0xC0000005 *after* its log has closed. No Unreal crash report or Windows error event
+  is written, and the captures are complete. It also happens with the surfel asset unassigned (the
+  plugin draws nothing), so it isn't caused by the plugin. Hardware runs at 1280x720 exit cleanly.
+  Not pursued further.

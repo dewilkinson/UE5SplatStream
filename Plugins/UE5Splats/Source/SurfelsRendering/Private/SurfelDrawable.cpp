@@ -145,6 +145,7 @@ void FSurfelDrawable::AddDiscPass(FRDGBuilder& GraphBuilder, const FViewInfo& Vi
 	Parameters->ScaleLog2Min = Data.ScaleLog2Min;
 	Parameters->ScaleLog2Max = Data.ScaleLog2Max;
 	Parameters->PreExposure = View.PreExposure;
+	Parameters->EmissiveIntensity = Settings.EmissiveIntensity;
 	Parameters->RenderTargets[0] = FRenderTargetBinding(SceneColor, ERenderTargetLoadAction::ELoad);
 	Parameters->RenderTargets.DepthStencil = FDepthStencilBinding(SceneDepth, ERenderTargetLoadAction::ELoad, FExclusiveDepthStencil::DepthWrite_StencilNop);
 

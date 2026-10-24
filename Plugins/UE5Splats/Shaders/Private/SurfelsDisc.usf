@@ -9,7 +9,8 @@
 //  - Oct16 normals are decoded as the two signed bytes PackNormalOct16 writes (Surfels.hlsl reads
 //    them as unsigned; see the note in the plugin docs).
 //  - Splat records draw with their DC colour only; spherical harmonics arrive with step 3.
-//  - Output is linear and pre-exposed, as Unreal's scene colour expects.
+//  - Output is linear and pre-exposed, as Unreal's scene colour expects, scaled by EmissiveIntensity:
+//    the stored colours are baked light, so they behave like an emissive surface under Unreal's exposure.
 // Chunk-level culling: frustum test in the amplification shader; the vertex fallback leaves it to
 // the rasterizer, as surfels does. Normal-cone culling arrives with step 2.
 
@@ -53,6 +54,7 @@ float    ScaleLog2Min;
 float    ScaleLog2Max;
 float    PreExposure;
 uint     WordsPerRecord;
+float    EmissiveIntensity; // Brightness of the stored (baked) colour as emissive light; 1 = as stored
 
 struct FSurfelVSOut
 {
@@ -408,5 +410,5 @@ void MainPS(FSurfelVSOut In, out float4 OutColor : SV_Target0)
 	{
 		discard;
 	}
-	OutColor = float4(SRGBToLinearColor(In.Color) * PreExposure, 1.0);
+	OutColor = float4(SRGBToLinearColor(In.Color) * EmissiveIntensity * PreExposure, 1.0);
 }

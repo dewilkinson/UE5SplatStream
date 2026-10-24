@@ -4,6 +4,7 @@
 
 #include "SurfelAsset.h"
 #include "SurfelSceneProxy.h"
+#include "RenderingThread.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogSurfels, Log, All);
 
@@ -35,6 +36,19 @@ FMatrix USurfelComponent::GetModelToLocal() const
 	return FScaleMatrix(FVector(S));
 }
 
+void USurfelComponent::SetEmissiveIntensity(float NewIntensity)
+{
+	EmissiveIntensity = FMath::Max(NewIntensity, 0.0f);
+	if (FSurfelSceneProxy* Proxy = static_cast<FSurfelSceneProxy*>(SceneProxy))
+	{
+		// Only a shader constant changes: hand it to the render thread instead of rebuilding the proxy.
+		ENQUEUE_RENDER_COMMAND(SetSurfelEmissiveIntensity)([Proxy, Intensity = EmissiveIntensity](FRHICommandListImmediate&)
+		{
+			Proxy->SetEmissiveIntensity_RenderThread(Intensity);
+		});
+	}
+}
+
 FPrimitiveSceneProxy* USurfelComponent::CreateSceneProxy()
 {
 	if (!SurfelAsset)
@@ -54,6 +68,7 @@ FPrimitiveSceneProxy* USurfelComponent::CreateSceneProxy()
 	Settings.SplatScale = SplatScale;
 	Settings.Coverage = Coverage;
 	Settings.Orient = (Orientation == ESurfelOrientation::Billboard) ? ESurfelOrient::Billboard : ESurfelOrient::Disc;
+	Settings.EmissiveIntensity = EmissiveIntensity;
 	return new FSurfelSceneProxy(this, MoveTemp(Level), Settings);
 }
 
@@ -70,6 +85,11 @@ FBoxSphereBounds USurfelComponent::CalcBounds(const FTransform& LocalToWorld) co
 void USurfelComponent::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent)
 {
 	Super::PostEditChangeProperty(PropertyChangedEvent);
+	if (PropertyChangedEvent.GetMemberPropertyName() == GET_MEMBER_NAME_CHECKED(USurfelComponent, EmissiveIntensity))
+	{
+		SetEmissiveIntensity(EmissiveIntensity);
+		return;
+	}
 	UpdateBounds();
 	MarkRenderStateDirty();
 }

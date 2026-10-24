@@ -14,8 +14,13 @@ import unreal
 PROJECT_DIR = unreal.Paths.convert_relative_path_to_full(unreal.Paths.project_dir())
 OUT_DIR = os.path.join(PROJECT_DIR, "Saved", "RenderCheck")
 SAMPLES_DIR = os.environ.get("SURFELS_SAMPLES", "C:/github/surfels/assets")
-SAMPLES = ["dwarves", "venus"]  # splat20 and surfel8 records
-WIDTH, HEIGHT = 1280, 720
+# Options (set by RenderCheck.ps1): which samples, which LOD level (-1 = coarsest), capture size,
+# extra captures at these emissive intensities, and whether to place the occluding cube.
+SAMPLES = [s for s in os.environ.get("RENDERCHECK_SAMPLES", "dwarves,venus").split(",") if s]
+LEVEL = int(os.environ.get("RENDERCHECK_LEVEL", "-1"))
+WIDTH, HEIGHT = (int(v) for v in os.environ.get("RENDERCHECK_RES", "1280x720").lower().split("x"))
+EMISSIVE = [float(v) for v in os.environ.get("RENDERCHECK_EMISSIVE", "").split(",") if v]
+OCCLUDER = os.environ.get("RENDERCHECK_OCCLUDER", "1") != "0"
 
 results = {"samples": {}, "errors": []}
 
@@ -62,7 +67,9 @@ def check_sample(name):
 
     surfels = actors.spawn_actor_from_class(unreal.SurfelActor, unreal.Vector(0, 0, 0))
     component = surfels.get_editor_property("surfel_component")
-    component.set_surfel_asset(asset)
+    component.set_editor_property("resident_level", LEVEL)
+    if os.environ.get("RENDERCHECK_NO_SURFELS") != "1":  # debugging: same scene, nothing for the plugin to draw
+        component.set_surfel_asset(asset)
     origin, extent = surfels.get_actor_bounds(False)
     radius = max(extent.x, extent.y, extent.z, 1.0)
     log("%s bounds: origin %s extent %s" % (name, origin, extent))
@@ -79,9 +86,10 @@ def check_sample(name):
     cc.set_editor_property("capture_on_movement", False)
     cc.set_editor_property("fov_angle", 60.0)
 
-    cube = actors.spawn_actor_from_class(unreal.StaticMeshActor, unreal.Vector(origin.x - distance * 0.45, origin.y - radius * 0.55, origin.z))
-    cube.static_mesh_component.set_static_mesh(unreal.load_asset("/Engine/BasicShapes/Cube"))
-    cube.set_actor_scale3d(unreal.Vector(0.2, radius * 0.006, radius * 0.02))
+    if OCCLUDER:
+        cube = actors.spawn_actor_from_class(unreal.StaticMeshActor, unreal.Vector(origin.x - distance * 0.45, origin.y - radius * 0.55, origin.z))
+        cube.static_mesh_component.set_static_mesh(unreal.load_asset("/Engine/BasicShapes/Cube"))
+        cube.set_actor_scale3d(unreal.Vector(0.2, radius * 0.006, radius * 0.02))
 
     shots = {}
     for label, cvar in (("mesh", "r.Surfels.MeshShaders 1"), ("fallback", "r.Surfels.MeshShaders 0")):
@@ -90,6 +98,12 @@ def check_sample(name):
         capture(cap, rt, "%s_%s_warmup.png" % (name, label))
         shots[label] = capture(cap, rt, "%s_%s.png" % (name, label))
     unreal.SystemLibrary.execute_console_command(world(), "r.Surfels.MeshShaders 1")
+
+    for intensity in EMISSIVE:
+        component.set_emissive_intensity(intensity)
+        capture(cap, rt, "%s_emissive%g_warmup.png" % (name, intensity))
+        shots["emissive%g" % intensity] = capture(cap, rt, "%s_emissive%g.png" % (name, intensity))
+    component.set_emissive_intensity(1.0)
 
     surfels.set_actor_hidden_in_game(True)
     component.set_visibility(False)

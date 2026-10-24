@@ -46,6 +46,15 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Surfels")
 	ESurfelOrientation Orientation = ESurfelOrientation::Disc;
 
+	// Brightness of the scan's stored colours. They're baked light, drawn like an emissive surface,
+	// so Unreal's exposure affects them: raise this until the scan looks right in your lighting.
+	// Changing it is cheap (no rebuild, no re-upload) and it can be animated in Sequencer.
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Interp, Category = "Surfels", meta = (ClampMin = "0.0", UIMin = "0.0", UIMax = "50.0", SliderExponent = "2.0"))
+	float EmissiveIntensity = 1.0f;
+
+	UFUNCTION(BlueprintCallable, Category = "Surfels")
+	void SetEmissiveIntensity(float NewIntensity);
+
 	// Package units to Unreal centimetres (surfels packages are in metres).
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Surfels|Import Frame", meta = (ClampMin = "0.0001"))
 	float UnitsToCentimeters = 100.0f;

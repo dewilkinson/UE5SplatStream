@@ -213,3 +213,18 @@ how it was verified).
   `BuildCodec.ps1 -CodecRepo <splatlab>` copies splatlab's prebuilt library (Git LFS), and builds
   from source only when it's missing. The open stand-in codec can't decode real packages.
 - **Supersedes:** the earlier recommendation to keep the repository private.
+
+## D18. Baked colours are emissive, with a per-component Emissive Intensity
+
+- **Date:** 2026-10-24. **Status:** Agreed (the user asked for an emissive slider).
+- **Decision:** stored splat and surfel colours are drawn as emissive light, so Unreal's exposure
+  applies to them, and `USurfelComponent::EmissiveIntensity` (default 1, slider 0 to 50, can be
+  animated in Sequencer) scales them.
+  - Changing it is cheap: `SetEmissiveIntensity` sends the value to the render thread. It doesn't
+    rebuild the scene proxy or re-upload buffers.
+- **Why:** it fits Unreal's lighting model and lets each scene be tuned. The alternative, showing
+  stored colours unchanged whatever the exposure, matches other splat viewers but ignores the scene.
+- **Observed:** in the render-check scene (a directional light and a sky light, auto exposure off),
+  intensity 2 reproduces the stored colours best; 4 starts to wash out; 16 blows out with bloom.
+- **Consequence:** this resolves the open "exposure of baked colours" question. Discs moving into
+  the GBuffer (step 1b) will be lit by Unreal instead.
