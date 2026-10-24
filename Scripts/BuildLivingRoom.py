@@ -18,6 +18,7 @@ SPLAT_HEIGHT_CM = float(os.environ.get("ROOM_SPLAT_HEIGHT", "35"))
 SPLAT_EMISSIVE = float(os.environ.get("ROOM_SPLAT_EMISSIVE", "1"))
 MAP = "/Game/Demo/Map_LivingRoom"
 PIPELINE = "/Game/Demo/Pipelines/GLTFCombinedAssetsPipeline"
+FLAMES = os.environ.get("ROOM_FLAMES", "/Game/ExampleContent/Blueprint_Communication/Effects/P_Flames")
 
 # (model, x, y, yaw) in centimetres on the floor; +X is away from the camera, +Y to its right.
 # Imported Poly Haven models face +Y at yaw 0: yaw 90 faces the camera (-X), 0 faces +Y, 180 faces -Y.
@@ -218,6 +219,14 @@ def build_fireplace(center_x, wall_y, brick, plaster):
     for i, (dx, dy, sx, sy, mat) in enumerate([(-18, 2, 14, 9, hot), (6, -2, 18, 7, hot), (22, 6, 9, 8, warm),
                                                (-6, 10, 12, 6, warm), (14, -9, 8, 6, warm), (-26, -8, 7, 6, warm)]):
         box("Fireplace_Ember%d" % i, (center_x + dx, y + dy, 9), (sx, sy, 2), mat)
+
+    # Flames, when the project has a flame effect (the demo project migrates P_Flames from Epic's
+    # Content Examples; it isn't redistributable, so this repository doesn't carry it).
+    if assets.does_asset_exist(FLAMES):
+        flames = actors.spawn_actor_from_object(unreal.load_asset(FLAMES), unreal.Vector(center_x, y + 1, 16))
+        flames.set_actor_scale3d(unreal.Vector(0.32, 0.32, 0.32))
+        flames.set_actor_label("Fireplace_Flames")
+        log("flames: " + FLAMES)
 
     # The fire light sits low, at the front of the opening, so it falls on the hearth and the room.
     fire = actors.spawn_actor_from_class(unreal.PointLight, unreal.Vector(center_x, wall_y + d - 4, 22))
