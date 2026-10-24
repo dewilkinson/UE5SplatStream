@@ -33,6 +33,18 @@ been built against Unreal), *Done* (built, tested, and seen working in the engin
 **Remaining:** time the mesh path on a GPU with Mesh Shader Tier 1. Colours are emissive with a per-component
 Emissive Intensity (D18).
 
+### Step 1a: splat shadow casting
+
+**Status:** Scheduled next (2026-10-24, D19). Approach to be chosen.
+
+- Option 1: draw the splats in Unreal's own shadow passes through a custom vertex factory and a
+  shadow-only mesh batch. Exact per-disc shadows from every light type, virtual shadow maps
+  included; the most engine-version-sensitive code in the plugin.
+- Option 2: a hidden shadow-proxy mesh (voxelised points, or the package's baked occlusion
+  volume) that casts shadows only. No new rendering code, can double as collision; shadows are
+  approximate at the voxel size.
+- Test scene: `/Game/Demo/Map_LivingRoom` (the dwarves on the coffee table under the window sun).
+
 ### Step 1b: discs into the GBuffer
 
 **Status:** Not started (needs the engine to check the GBuffer / Substrate layout).
@@ -81,13 +93,11 @@ Emissive Intensity (D18).
 ### Later
 
 - World Partition cells for very large scans (D15).
-- Splat shadow casting: an extra depth pass per light (D4; see Reminders).
 - Editor picking (selecting the actor by clicking its discs).
 
 ## Reminders for the user
 
-- **Splat shadow casting** was deferred on purpose (D4). Raise it again once steps 1 to 3 work,
-  or whenever lighting comes up.
+- None at the moment. (Splat shadow casting, deferred in D4, is scheduled as step 1a.)
 
 ## Open questions
 

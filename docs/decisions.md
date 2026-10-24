@@ -228,3 +228,12 @@ how it was verified).
   intensity 2 reproduces the stored colours best; 4 starts to wash out; 16 blows out with bloom.
 - **Consequence:** this resolves the open "exposure of baked colours" question. Discs moving into
   the GBuffer (step 1b) will be lit by Unreal instead.
+
+## D19. Schedule splat shadow casting now (supersedes D4's deferral)
+
+- **Date:** 2026-10-24. **Status:** Agreed.
+- **Decision:** splat shadow casting moves from "later" to step 1a, ahead of the GBuffer work.
+- **Why:** the Nanite living-room scene showed the gap: every Nanite piece casts a shadow and the
+  splat on the coffee table doesn't, so it looks pasted on.
+- **Open:** the approach (Unreal's shadow passes through a custom vertex factory, or a hidden
+  shadow-proxy mesh); see plan.md, step 1a.
