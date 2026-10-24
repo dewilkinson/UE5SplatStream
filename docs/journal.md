@@ -162,3 +162,25 @@ in [decisions.md](decisions.md), the build order and status in [plan.md](plan.md
   is written, and the captures are complete. It also happens with the surfel asset unassigned (the
   plugin draws nothing), so it isn't caused by the plugin. Hardware runs at 1280x720 exit cleanly.
   Not pursued further.
+
+### Nanite living-room demo scene (2026-10-24)
+
+- Added a test scene that mixes Nanite meshes with a splat scan: `/Game/Demo/Map_LivingRoom`.
+  - `Scripts/FetchRoomAssets.ps1` downloads nine CC0 Poly Haven models (sofa, lounge chair,
+    coffee table, side table, oil lamp, cabinet, bookshelf, brass vase, potted plant) as glTF with
+    1K textures into `ThirdPartyAssets/` (gitignored, 15 MB).
+  - `Scripts/BuildLivingRoom.ps1` imports each through Interchange with a copy of the glTF asset
+    pipeline set to "Combine All" (multi-part models become one mesh), with Nanite on. It builds a
+    6 x 6 m room (floor, ceiling, walls, a window in the back wall, the front open), a sun, sky
+    atmosphere, a sky light, a lamp light and an auto-exposure post-process volume. It stands
+    `dwarves` (level 0, scaled to 35 cm, emissive 1) on the coffee table, saves the level, and
+    writes previews to `Saved/RenderCheck/living_room*.png` once shaders and lighting settle.
+  - `Scripts/OpenDemo.ps1 -Map /Game/Demo/Map_LivingRoom` opens it at its `DemoCamera`.
+- The splat renders correctly among the Nanite meshes: depth-tested against the table, at its
+  stored colours with emissive 1 under the room's auto exposure. It casts no shadow on the table
+  (splat shadow casting is still deferred, D4).
+- Found while building it: Unreal's Python `unreal.Rotator(a, b, c)` takes **(roll, pitch, yaw)**.
+  Positional `Rotator(0, yaw, 0)` had been tilting the furniture and pointing the suns in the earlier
+  render-check scenes the wrong way. All scripts now use keyword arguments.
+- Also: `-ExecutePythonScript` quits the editor when the script returns, so scripts that must keep
+  the editor open (or wait for frames) run as `-ExecCmds="py <script>"` instead.

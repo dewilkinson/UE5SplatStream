@@ -62,7 +62,7 @@ def check_sample(name):
 
     # Fresh level per sample: a directional light and a sky light so the scene isn't black.
     unreal.get_editor_subsystem(unreal.LevelEditorSubsystem).new_level("/Game/RenderCheck/Map_" + name)
-    sun = actors.spawn_actor_from_class(unreal.DirectionalLight, unreal.Vector(0, 0, 500), unreal.Rotator(-40, 0, -30))
+    sun = actors.spawn_actor_from_class(unreal.DirectionalLight, unreal.Vector(0, 0, 500), unreal.Rotator(pitch=-40, yaw=-30))
     actors.spawn_actor_from_class(unreal.SkyLight, unreal.Vector(0, 0, 600))
 
     surfels = actors.spawn_actor_from_class(unreal.SurfelActor, unreal.Vector(0, 0, 0))
@@ -77,7 +77,7 @@ def check_sample(name):
     # Camera on -X looking at the model; a cube between them covering the left part of the view.
     distance = radius * 3.2
     cam_pos = unreal.Vector(origin.x - distance, origin.y, origin.z)
-    cap = actors.spawn_actor_from_class(unreal.SceneCapture2D, cam_pos, unreal.Rotator(0, 0, 0))
+    cap = actors.spawn_actor_from_class(unreal.SceneCapture2D, cam_pos, unreal.Rotator())
     rt = unreal.RenderingLibrary.create_render_target2d(world(), WIDTH, HEIGHT, unreal.TextureRenderTargetFormat.RTF_RGBA8)
     cc = cap.capture_component2d
     cc.set_editor_property("texture_target", rt)

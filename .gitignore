@@ -13,3 +13,5 @@ Plugins/UE5Splats/Source/ThirdParty/BluesecCodec/lib/
 Plugins/UE5Splats/Source/ThirdParty/BluesecCodec/Intermediate/
 *.slnx
 Content/RenderCheck/
+ThirdPartyAssets/
+Content/Demo/

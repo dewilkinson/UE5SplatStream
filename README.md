@@ -67,3 +67,9 @@ the Content Browser, place a **Surfel Actor** and assign the imported asset.
 
 Apache License 2.0; see [LICENSE](LICENSE). This covers the plugin, project and scripts in this
 repository. It does not cover bluesec-codec, which has its own terms.
+
+## Demo scene
+
+`.\Scripts\BuildLivingRoom.ps1` builds a furnished room of Nanite meshes (free CC0 models from
+[Poly Haven](https://polyhaven.com), downloaded on first run) with a splat scan standing on the coffee
+table. `.\Scripts\OpenDemo.ps1 -Map /Game/Demo/Map_LivingRoom` opens it in the editor.
