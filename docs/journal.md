@@ -184,3 +184,38 @@ in [decisions.md](decisions.md), the build order and status in [plan.md](plan.md
   render-check scenes the wrong way. All scripts now use keyword arguments.
 - Also: `-ExecutePythonScript` quits the editor when the script returns, so scripts that must keep
   the editor open (or wait for frames) run as `-ExecCmds="py <script>"` instead.
+
+### Realistic lighting for the living room (2026-10-24)
+
+- **The project had no global illumination.** The hand-written `Config/DefaultEngine.ini` never enabled
+  what Unreal's project templates do; it now sets Lumen GI and reflections, mesh distance fields,
+  virtual shadow maps and no static lighting.
+- **Room:** closed, lit through a window in the back wall; herringbone parquet (satin, roughness x2),
+  painted plaster and brown brick from Poly Haven (CC0); a lawn and light height fog outside.
+  Sun, sky atmosphere, a real-time sky light, an auto-exposure volume held to a narrow range
+  (0.8 to 1.2) so the interior keeps its contrast, a vignette.
+- **Lights:** a built brick fireplace (surround, mantel, hearth, emissive embers, a warm 25 cd light),
+  a Nanite chandelier (Poly Haven) with a 35 cd light, and the oil lamp.
+- **Splats:** `dwarves` (level 0, 35 cm) on the coffee table; `cthulu` (level 1, 1.66 M surfels,
+  40 cm) on the mantel.
+- Seen in the editor viewport: Lumen bounce light, reflections and virtual shadow maps all work, and
+  both scans sit correctly in the depth buffer among the Nanite meshes. They don't respond to the
+  room's lights (emissive, D18): step 1b. They cast no shadows: step 1a (D19, D20).
+
+Problems found and fixed on the way (all in the demo scripts, not the plugin):
+
+- **The level file was never replaced after the first build.** Deleting it failed while it was still
+  referenced, `new_level` then refused the path, and the script built in an unsaved blank map while
+  logging "saved". The editor therefore kept showing the first, broken build. The script now opens
+  and clears the level, verifies it's editing `Map_LivingRoom`, and fails if the save fails.
+- **`unreal.Color(r, g, b, a)` positional arguments are (B, G, R, A)**, like `Rotator`'s
+  (roll, pitch, yaw): warm lights came out blue. All scripts use keyword arguments now.
+- **Multi-part glTF models:** "Combine All" kept only the door of `modern_wooden_cabinet` (a mesh
+  reused across nodes). It's replaced by `drawer_cabinet`, and the script now places every part an
+  import yields instead of the first.
+- **Translucent materials don't work with Nanite:** the sofa (fringe) and oil lamp (glass, flame) are
+  ordinary static meshes; the other eight models are Nanite. Unreal still logs the warning when the
+  level loads; not yet explained.
+- **SceneCapture previews don't show Lumen**, so the scripted previews understate the lighting. The
+  editor viewport is the reference. Unreal also logs "Abandoning remaining async distance field
+  tasks" at every shutdown, whether or not any were left; it was a false lead.

@@ -35,7 +35,7 @@ Emissive Intensity (D18).
 
 ### Step 1a: splat shadow casting
 
-**Status:** Scheduled next (2026-10-24, D19). Approach to be chosen.
+**Status:** Scheduled next (2026-10-24, D19). Approach chosen: shadow proxy from the baked voxel shell (D20).
 
 - Option 1: draw the splats in Unreal's own shadow passes through a custom vertex factory and a
   shadow-only mesh batch. Exact per-disc shadows from every light type, virtual shadow maps

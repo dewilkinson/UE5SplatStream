@@ -84,6 +84,7 @@ def check_sample(name):
     cc.set_editor_property("capture_source", unreal.SceneCaptureSource.SCS_FINAL_COLOR_LDR)
     cc.set_editor_property("capture_every_frame", False)
     cc.set_editor_property("capture_on_movement", False)
+    cc.set_editor_property("always_persist_rendering_state", True)  # temporal effects (TSR, Lumen, exposure) need view history
     cc.set_editor_property("fov_angle", 60.0)
 
     if OCCLUDER:

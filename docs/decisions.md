@@ -237,3 +237,17 @@ how it was verified).
   splat on the coffee table doesn't, so it looks pasted on.
 - **Open:** the approach (Unreal's shadow passes through a custom vertex factory, or a hidden
   shadow-proxy mesh); see plan.md, step 1a.
+
+## D20. Splat shadows come from the package's baked voxel shell
+
+- **Date:** 2026-10-24. **Status:** Agreed (the user pointed to the voxel shell they bake).
+- **Decision:** step 1a builds a hidden, shadow-only proxy mesh from the interior occlusion volume
+  stored in the `.sflw` (v3+): mip 0's blocks, emitting only the faces each block marks as exposed.
+  Unreal then shadows it from every light type with no new rendering code. The custom-vertex-factory
+  route stays available if per-disc shadow detail is ever needed.
+- **Data:** all four bundled packages carry a shell (finest cells: dwarves 0.046, cthulu 0.0056,
+  strawberry 0.0198, venus 0.186 model units).
+- **Caveat:** the shell is baked just inside the surface (and Shave erodes it further), so shadows
+  come out slightly smaller than the scan. The user allows re-baking packages from the source point
+  clouds next to them (in the surfels `assets` folders), for example to bake a finer or less-shaved
+  shell for shadowing.
