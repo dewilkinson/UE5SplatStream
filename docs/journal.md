@@ -219,3 +219,16 @@ Problems found and fixed on the way (all in the demo scripts, not the plugin):
 - **SceneCapture previews don't show Lumen**, so the scripted previews understate the lighting. The
   editor viewport is the reference. Unreal also logs "Abandoning remaining async distance field
   tasks" at every shutdown, whether or not any were left; it was a false lead.
+
+### Demo content moved to UE5SplatsDemo (2026-10-24)
+
+- The user added three Fab items (Content Examples, Cigar Room Environment, Coffee Shop Environment)
+  to their library, intending them for PluginSandbox. None had reached the sandbox yet: Content
+  Examples is being created as its own project, and the two environment packs still need
+  "Add to Project".
+- Created the private `UE5SplatsDemo` project (D21) and moved `Content/Demo` (the living room and its
+  assets, 234 MB) into it. Its first build loaded the plugin straight from the sandbox's `Plugins`
+  folder, rebuilt the living room there and rendered both scans.
+- The fireplace was rebuilt as a settled fire: soot-black firebox, three charred logs, scattered
+  embers in two strengths and a lower, dimmer fire light at the opening, instead of an evenly glowing
+  firebox that read as a furnace.

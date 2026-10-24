@@ -1,16 +1,19 @@
-# Builds the Nanite + splat living-room demo level (/Game/Demo/Map_LivingRoom) and writes a preview
-# capture to Saved\RenderCheck\living_room.png. Downloads the furniture first if needed.
+# Builds the Nanite + splat living-room demo level (/Game/Demo/Map_LivingRoom) in the demo project
+# (see FindDemoProject.ps1; -Project overrides it) and writes preview captures to that project's
+# Saved\RenderCheck. Downloads the furniture into this repository's ThirdPartyAssets first if needed.
 #   -Splat dwarves   splat sample to stand on the coffee table   -Height 35   its height in cm
 #   -Emissive 1      its Emissive Intensity (the room uses auto exposure)
 param(
 	[string]$Samples = "C:\github\surfels\assets",
 	[string]$Splat = "dwarves",
 	[string]$Height = "35",
-	[string]$Emissive = "1"
+	[string]$Emissive = "1",
+	[string]$Project = ""
 )
 & "$PSScriptRoot\FetchRoomAssets.ps1"
 $ue = & "$PSScriptRoot\FindEngine.ps1"
-$proj = Resolve-Path "$PSScriptRoot\..\PluginSandbox.uproject"
+$proj = & "$PSScriptRoot\FindDemoProject.ps1" -Project $Project
+$env:ROOM_ASSETS_DIR = Join-Path (Resolve-Path "$PSScriptRoot\..") "ThirdPartyAssets\polyhaven"
 $script = Resolve-Path "$PSScriptRoot\BuildLivingRoom.py"
 $env:SURFELS_SAMPLES = $Samples
 $env:ROOM_SPLAT = $Splat

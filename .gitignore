@@ -15,3 +15,6 @@ Plugins/UE5Splats/Source/ThirdParty/BluesecCodec/Intermediate/
 Content/RenderCheck/
 ThirdPartyAssets/
 Content/Demo/
+
+# Showcase content (Fab packs, demo scenes) belongs in the private UE5SplatsDemo project, never here.
+Content/

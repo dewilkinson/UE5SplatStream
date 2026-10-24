@@ -251,3 +251,18 @@ how it was verified).
   come out slightly smaller than the scan. The user allows re-baking packages from the source point
   clouds next to them (in the surfels `assets` folders), for example to bake a finer or less-shaved
   shell for shadowing.
+
+## D21. Showcase content lives in a private UE5SplatsDemo project
+
+- **Date:** 2026-10-24. **Status:** Agreed (the user asked for it to be fixed this way).
+- **Decision:** PluginSandbox (the public UE5Splats repository) holds only the plugin, its tests,
+  scripts and docs. Fab packs and demo scenes live in a private, untracked project,
+  `UE5SplatsDemo`, next to it (`C:\Users\rende\UnrealDev\UE5SplatsDemo`). That project loads the
+  plugin from `../PluginSandbox/Plugins` through `AdditionalPluginDirectories`, so there is one copy
+  of the plugin; it's rebuilt in PluginSandbox.
+- **Why:** Fab content can't be redistributed, and packs added to the sandbox would sit one
+  `git add` away from the public repository; multi-GB packs would also slow the build-and-test loop.
+- **Consequences:** `Content/` in the sandbox is now gitignored. The demo scripts (`BuildLivingRoom.ps1`,
+  `OpenDemo.ps1`) target the demo project when it exists (`FindDemoProject.ps1`, `-Project` to
+  override); the downloaded Poly Haven files stay in the sandbox's gitignored `ThirdPartyAssets`.
+  The render check and automation tests stay in the sandbox.

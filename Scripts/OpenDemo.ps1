@@ -1,4 +1,5 @@
-# Opens the editor for looking around a scan.
+# Opens the editor for looking around a scan, in the demo project (see FindDemoProject.ps1;
+# -Project overrides it).
 #   -Map /Game/Demo/Map_LivingRoom   open a saved level (e.g. from BuildLivingRoom.ps1) at its DemoCamera
 # Without -Map: a sample scan placed in a lit blank level (nothing is saved):
 #   -Sample dwarves   sample folder under -Samples    -Level 0   LOD level (-1 = coarsest)
@@ -8,10 +9,11 @@ param(
 	[string]$Samples = "C:\github\surfels\assets",
 	[string]$Sample = "dwarves",
 	[int]$Level = 0,
-	[string]$Emissive = "2"
+	[string]$Emissive = "2",
+	[string]$Project = ""
 )
 $ue = & "$PSScriptRoot\FindEngine.ps1"
-$proj = Resolve-Path "$PSScriptRoot\..\PluginSandbox.uproject"
+$proj = & "$PSScriptRoot\FindDemoProject.ps1" -Project $Project
 if ($Map) {
 	$script = (Resolve-Path "$PSScriptRoot\FocusDemoCamera.py").Path -replace '\\', '/'
 	$arguments = "`"$proj`" $Map -ExecCmds=`"py $script`""

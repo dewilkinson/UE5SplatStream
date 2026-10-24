@@ -10,7 +10,7 @@ import traceback
 import unreal
 
 PROJECT_DIR = unreal.Paths.convert_relative_path_to_full(unreal.Paths.project_dir())
-MODELS_DIR = os.path.join(PROJECT_DIR, "ThirdPartyAssets", "polyhaven")
+MODELS_DIR = os.environ.get("ROOM_ASSETS_DIR", os.path.join(PROJECT_DIR, "ThirdPartyAssets", "polyhaven"))
 OUT_DIR = os.path.join(PROJECT_DIR, "Saved", "RenderCheck")
 SAMPLES_DIR = os.environ.get("SURFELS_SAMPLES", "C:/github/surfels/assets")
 SPLAT = os.environ.get("ROOM_SPLAT", "dwarves")
@@ -178,6 +178,16 @@ def emissive_material(name, rgb, strength):
     return material
 
 
+def log_piece(label, center, length, radius, yaw, material):
+    # A log lying on its side: the engine cylinder (axis Z, 100 cm) scaled and tipped onto X, then turned.
+    a = actors.spawn_actor_from_class(unreal.StaticMeshActor, unreal.Vector(*center), unreal.Rotator(pitch=90, yaw=yaw))
+    a.static_mesh_component.set_static_mesh(unreal.load_asset("/Engine/BasicShapes/Cylinder"))
+    a.set_actor_scale3d(unreal.Vector(radius / 50.0, radius / 50.0, length / 100.0))
+    a.static_mesh_component.set_material(0, material)
+    a.set_actor_label(label)
+    return a
+
+
 def build_fireplace(center_x, wall_y, brick, plaster):
     # A brick fireplace against the wall at wall_y (facing +Y): surround, mantel shelf, hearth,
     # a dark firebox, glowing embers and a warm fire light.
@@ -190,17 +200,32 @@ def build_fireplace(center_x, wall_y, brick, plaster):
     box("Fireplace_Header", (center_x, y, (oh + 16 + h) / 2.0), (w, d, h - oh - 16), brick)
     mantel = box("Fireplace_Mantel", (center_x, y + 6, h + 4), (w + 24, d + 14, 8), plaster)
     box("Fireplace_Hearth", (center_x, wall_y + d + 22, 4), (w + 30, 44, 8), brick)
-    soot = textured_material("M_Brick_Firebox", "brown_brick_02", 1.0)
+    # Firebox: sooty, near-black walls, so the fire lights the room rather than its own box.
+    soot = flat_material("M_Soot", (0.02, 0.018, 0.016), 0.95)
     box("Fireplace_Back", (center_x, wall_y + 6, oh / 2.0 + 8), (ow, 12, oh + 16), soot)
     box("Fireplace_Floor", (center_x, y, 6), (ow, d, 4), soot)
-    embers = emissive_material("M_Embers", (1.0, 0.32, 0.06), 12.0)
-    box("Fireplace_Embers", (center_x, y, 10), (ow * 0.7, d * 0.55, 3), embers)
-    fire = actors.spawn_actor_from_class(unreal.PointLight, unreal.Vector(center_x, y + 8, 30))
+    box("Fireplace_SideL", (center_x - ow / 2.0 + 2, y, oh / 2.0 + 8), (4, d, oh + 16), soot)
+    box("Fireplace_SideR", (center_x + ow / 2.0 - 2, y, oh / 2.0 + 8), (4, d, oh + 16), soot)
+    box("Fireplace_Roof", (center_x, y, oh + 14), (ow, d, 4), soot)
+
+    # A settled fire: three charred logs on a bed of scattered embers (no flame effect).
+    bark = flat_material("M_CharredLog", (0.035, 0.025, 0.018), 0.9)
+    log_piece("Fireplace_Log1", (center_x - 4, y - 6, 15), 58, 6.5, 8, bark)
+    log_piece("Fireplace_Log2", (center_x + 3, y + 7, 15), 54, 6.0, -6, bark)
+    log_piece("Fireplace_Log3", (center_x, y + 1, 26), 50, 5.5, 62, bark)
+    hot = emissive_material("M_Embers_Hot", (1.0, 0.30, 0.05), 6.0)
+    warm = emissive_material("M_Embers_Warm", (0.9, 0.18, 0.03), 2.5)
+    for i, (dx, dy, sx, sy, mat) in enumerate([(-18, 2, 14, 9, hot), (6, -2, 18, 7, hot), (22, 6, 9, 8, warm),
+                                               (-6, 10, 12, 6, warm), (14, -9, 8, 6, warm), (-26, -8, 7, 6, warm)]):
+        box("Fireplace_Ember%d" % i, (center_x + dx, y + dy, 9), (sx, sy, 2), mat)
+
+    # The fire light sits low, at the front of the opening, so it falls on the hearth and the room.
+    fire = actors.spawn_actor_from_class(unreal.PointLight, unreal.Vector(center_x, wall_y + d - 4, 22))
     fire.set_actor_label("Fireplace_Light")
     light = fire.point_light_component
-    light.set_editor_property("light_color", unreal.Color(r=255, g=165, b=100, a=255))
-    light.set_editor_property("intensity", 25.0)
-    light.set_editor_property("source_radius", 25.0)
+    light.set_editor_property("light_color", unreal.Color(r=255, g=150, b=80, a=255))
+    light.set_editor_property("intensity", 20.0)
+    light.set_editor_property("source_radius", 12.0)
     light.set_editor_property("attenuation_radius", 900.0)
     return mantel
 
