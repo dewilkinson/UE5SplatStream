@@ -1,5 +1,5 @@
 // SurfelPackageTests.cpp
-// Unreal automation tests for the .sflw format core. Run with Scripts/Test.ps1 -Filter Surfels.
+// Unreal automation tests for the package format core (.gstx, and older .sflw). Run with Scripts/Test.ps1 -Filter Surfels.
 
 #include "Misc/AutomationTest.h"
 #include "Misc/FileHelper.h"
@@ -34,7 +34,8 @@ void FSurfelPackageSampleTest::GetTests(TArray<FString>& OutBeautifiedNames, TAr
 		Repo = TEXT("C:/github/3DGSStream");
 	}
 	TArray<FString> Files;
-	IFileManager::Get().FindFilesRecursive(Files, *FPaths::Combine(Repo, TEXT("assets")), TEXT("*.sflw"), true, false);
+	IFileManager::Get().FindFilesRecursive(Files, *FPaths::Combine(Repo, TEXT("assets")), TEXT("*.gstx"), true, false);
+	IFileManager::Get().FindFilesRecursive(Files, *FPaths::Combine(Repo, TEXT("assets")), TEXT("*.sflw"), true, false, false); // false: keep the .gstx found above
 	for (const FString& File : Files)
 	{
 		OutBeautifiedNames.Add(FPaths::GetBaseFilename(File));

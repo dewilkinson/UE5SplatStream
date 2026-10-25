@@ -8,7 +8,8 @@
 USurfelAssetFactory::USurfelAssetFactory()
 {
 	SupportedClass = USurfelAsset::StaticClass();
-	Formats.Add(TEXT("sflw;Surfels package"));
+	Formats.Add(TEXT("gstx;GSTx package"));
+	Formats.Add(TEXT("sflw;GSTx package (older .sflw)"));
 	bCreateNew = false;
 	bEditorImport = true;
 	bText = false;

@@ -42,7 +42,8 @@ namespace SurfelsCoreTests
 			const uint32_t RecordBytes = (Format == ERecordFormat::Splat20) ? 20u : 8u;
 			FFileHeader H = {};
 			H.Magic = kMagic;
-			H.Version = 8;
+			H.Version = kMaxSupportedVersion;
+			H.PayloadCodec = 0; // The run-length stage (ByteShuffle::CompressShuffled below); v9+ writers choose per package
 			H.NumChunks = (uint32_t)Chunks.size();
 			H.BoundsMin = { -1.0f, 0.0f, -2.0f };
 			H.BoundsMax = { 3.0f, 2.0f, 1.0f };
@@ -169,9 +170,25 @@ namespace SurfelsCoreTests
 			Check(!ReadPackageInfo(Bad.data(), Bad.size(), Info, Error), Tag("mismatched payload size accepted"));
 
 			Bad = File;
-			H.Version = 9;
-			memcpy(Bad.data(), &H, sizeof(H));
+			FFileHeader Future = H;
+			Future.Version = kMaxSupportedVersion + 1;
+			memcpy(Bad.data(), &Future, sizeof(Future));
 			Check(!ReadPackageInfo(Bad.data(), Bad.size(), Info, Error), Tag("future format version accepted"));
+
+			// An older .sflw (signature SFLW, version 8) still reads; GSTX with a pre-10 version, or SFLW with 10, does not
+			Bad = File;
+			FFileHeader Legacy = H;
+			Legacy.Magic = kMagicSFLW;
+			Legacy.Version = 8;
+			memcpy(Bad.data(), &Legacy, sizeof(Legacy));
+			Check(ReadPackageInfo(Bad.data(), Bad.size(), Info, Error), Tag("SFLW version 8 package rejected: ") + Error);
+			Legacy.Magic = kMagic;
+			memcpy(Bad.data(), &Legacy, sizeof(Legacy));
+			Check(!ReadPackageInfo(Bad.data(), Bad.size(), Info, Error), Tag("GSTX signature with version 8 accepted"));
+			Legacy.Magic = kMagicSFLW;
+			Legacy.Version = kMaxSupportedVersion;
+			memcpy(Bad.data(), &Legacy, sizeof(Legacy));
+			Check(!ReadPackageInfo(Bad.data(), Bad.size(), Info, Error), Tag("SFLW signature with version 10 accepted"));
 		}
 	}
 

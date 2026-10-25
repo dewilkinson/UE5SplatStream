@@ -1,5 +1,5 @@
 # RenderCheck.py
-# Runs inside the editor (see RenderCheck.ps1). Imports sample .sflw packages, places each in a test
+# Runs inside the editor (see RenderCheck.ps1). Imports sample .gstx packages, places each in a test
 # level with a light and an occluding cube, and captures it through a SceneCapture2D on the mesh-shader
 # path, the vertex-shader fallback, and with the model hidden (baseline). Writes PNGs and a JSON
 # summary to Saved/RenderCheck, then quits the editor.
@@ -35,7 +35,7 @@ def world():
 
 def import_sample(name):
     task = unreal.AssetImportTask()
-    task.filename = os.path.join(SAMPLES_DIR, name, name + ".sflw").replace("\\", "/")
+    task.filename = os.path.join(SAMPLES_DIR, name, name + ".gstx").replace("\\", "/")
     task.destination_path = "/Game/RenderCheck"
     task.automated = True
     task.replace_existing = True

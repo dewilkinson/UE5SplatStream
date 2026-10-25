@@ -1,6 +1,6 @@
 using UnrealBuildTool;
 
-// Editor-only: importing .sflw packages as USurfelAsset.
+// Editor-only: importing .gstx packages as USurfelAsset.
 public class SurfelsEditor : ModuleRules
 {
 	public SurfelsEditor(ReadOnlyTargetRules Target) : base(Target)

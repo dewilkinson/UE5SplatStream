@@ -243,7 +243,7 @@ def place_splat(name, on_actor, height_cm, level, emissive, offset=(0.0, 0.0)):
     # Imports a sample scan if needed, scales it to height_cm and stands it on top of on_actor.
     if not assets.does_asset_exist("/Game/Demo/" + name):
         task = unreal.AssetImportTask()
-        task.filename = os.path.join(SAMPLES_DIR, name, name + ".sflw").replace("\\", "/")
+        task.filename = os.path.join(SAMPLES_DIR, name, name + ".gstx").replace("\\", "/")
         task.destination_path = "/Game/Demo"
         task.automated = True
         task.save = True

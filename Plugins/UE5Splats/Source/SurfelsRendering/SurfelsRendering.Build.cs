@@ -2,7 +2,7 @@ using System.IO;
 using UnrealBuildTool;
 
 // Everything that must exist before the global shader map is built: shaders, the draw passes,
-// the scene view extension and the .sflw format core. Loads at PostConfigInit; defines no UObjects.
+// the scene view extension and the .gstx format core. Loads at PostConfigInit; defines no UObjects.
 public class SurfelsRendering : ModuleRules
 {
 	public SurfelsRendering(ReadOnlyTargetRules Target) : base(Target)

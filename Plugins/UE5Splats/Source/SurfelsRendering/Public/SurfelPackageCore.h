@@ -1,6 +1,6 @@
 // SurfelPackageCore.h
-// Engine-independent .sflw reading for the Surfels plugin: the on-disk layout (mirrors
-// WaveletTypes.h in the surfels repo), header/manifest validation, decoding one level into
+// Engine-independent .gstx (and older .sflw) reading for the Surfels plugin: the on-disk layout (mirrors
+// WaveletTypes.h in the 3DGSStream repo), header/manifest validation, decoding one level into
 // GPU-ready records, and splitting it into the 64-surfel meshlets the draw shaders consume.
 // Plain C++17 so the same code builds inside the UE module and in a native test harness.
 
@@ -18,8 +18,9 @@
 
 namespace SurfelsCore
 {
-	static constexpr uint32_t kMagic = 0x574C4653; // "SFLW"
-	static constexpr uint32_t kMaxSupportedVersion = 8;
+	static constexpr uint32_t kMagic = 0x58545347;     // "GSTX": format version 10 and later (.gstx)
+	static constexpr uint32_t kMagicSFLW = 0x574C4653; // "SFLW": versions 1 to 9 (.sflw)
+	static constexpr uint32_t kMaxSupportedVersion = 10;
 	static constexpr uint32_t kMaxOcclusionMips = 4;
 	static constexpr uint32_t kSurfelsPerMeshlet = 64; // SURFELS_PER_GROUP in the shaders
 
@@ -60,8 +61,10 @@ namespace SurfelsCore
 		float    SplatScaleLog2Min;
 		float    SplatScaleLog2Max;
 		uint64_t SHManifestOffset;
+		uint32_t PayloadCodec; // v9+: the entropy stage of every payload (0 = run-length, 1 = Brotli); older files are 0
 	};
-	static_assert(sizeof(FFileHeader) == 200, "FFileHeader must match SFLWFileHeader");
+	static_assert(sizeof(FFileHeader) == 208, "FFileHeader must match SFLWFileHeader");
+	static_assert(offsetof(FFileHeader, PayloadCodec) == 200, "FFileHeader must match SFLWFileHeader");
 	static_assert(offsetof(FFileHeader, ManifestOffset) == 88, "FFileHeader must match SFLWFileHeader");
 	static_assert(offsetof(FFileHeader, DetailGridOffset) == 160, "FFileHeader must match SFLWFileHeader");
 	static_assert(offsetof(FFileHeader, SurfelFormat) == 168, "FFileHeader must match SFLWFileHeader");
@@ -135,7 +138,7 @@ namespace SurfelsCore
 		float PointSpacing = 0.0f; // Median nearest-neighbour distance (model units); 0 = unknown
 	};
 
-	// Reads and validates the header and chunk manifest. Data is the whole .sflw file.
+	// Reads and validates the header and chunk manifest. Data is the whole package file.
 	SURFELSRENDERING_API bool ReadPackageInfo(const uint8_t* Data, uint64_t Size, FPackageInfo& Out, std::string& OutError);
 
 	// Decodes one level. Chunks that stop short of RequestedLevel contribute their coarsest level, so

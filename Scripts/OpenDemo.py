@@ -21,7 +21,7 @@ def load_or_import(name):
     asset = unreal.load_asset(path) if unreal.EditorAssetLibrary.does_asset_exist(path) else None
     if asset is None:
         task = unreal.AssetImportTask()
-        task.filename = os.path.join(SAMPLES_DIR, name, name + ".sflw").replace("\\", "/")
+        task.filename = os.path.join(SAMPLES_DIR, name, name + ".gstx").replace("\\", "/")
         task.destination_path = "/Game/Demo"
         task.automated = True
         task.replace_existing = True

@@ -52,7 +52,7 @@ FSurfelLevelPtr USurfelAsset::GetDecodedLevel(int32 Level, FString* OutError)
 	const int64 Size = PackageData.GetBulkDataSize();
 	if (Size == 0)
 	{
-		if (OutError) *OutError = TEXT("The asset holds no package data; re-import the .sflw file.");
+		if (OutError) *OutError = TEXT("The asset holds no package data; re-import the .gstx file.");
 		return nullptr;
 	}
 

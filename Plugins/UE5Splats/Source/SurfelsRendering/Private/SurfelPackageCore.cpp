@@ -1,10 +1,12 @@
 // SurfelPackageCore.cpp
-// See SurfelPackageCore.h. Decoding mirrors StreamPackager::LoadPackage in the surfels repo:
-// each chunk LOD payload is DecompressShuffled, then Unshuffled back to interleaved records.
+// See SurfelPackageCore.h. Decoding mirrors StreamPackager::LoadPackage in the 3DGSStream repo: each chunk
+// LOD payload goes through the codec library's PayloadDecode (run-length or Brotli, per the header), then is
+// unshuffled back to interleaved records.
 
 #include "SurfelPackageCore.h"
 
 #include "ByteShuffle.h"
+#include "PayloadDecode.h"
 
 #include <algorithm>
 #include <cfloat>
@@ -27,6 +29,7 @@ namespace SurfelsCore
 			if (Version < 6) return offsetof(FFileHeader, OcclusionMipCount);
 			if (Version < 7) return offsetof(FFileHeader, DetailGridDims);
 			if (Version < 8) return offsetof(FFileHeader, SurfelFormat);
+			if (Version < 9) return offsetof(FFileHeader, PayloadCodec);
 			return sizeof(FFileHeader);
 		}
 
@@ -106,11 +109,12 @@ namespace SurfelsCore
 		Out = FPackageInfo();
 		FFileHeader& H = Out.Header;
 		const size_t HeaderBytes = (size_t)std::min<uint64_t>(Size, sizeof(FFileHeader));
-		if (HeaderBytes < 8) { OutError = "The file is too small to be a .sflw package."; return false; }
+		if (HeaderBytes < 8) { OutError = "The file is too small to be a .gstx package."; return false; }
 		memcpy(&H, Data, HeaderBytes);
 
-		if (H.Magic != kMagic) { OutError = Format("Not a .sflw package: signature 0x%08llX, expected 0x%08llX.", H.Magic, kMagic); return false; }
-		if (H.Version == 0 || H.Version > kMaxSupportedVersion) { OutError = Format(".sflw format version %llu is not supported (this plugin reads 1 to %llu).", H.Version, kMaxSupportedVersion); return false; }
+		if (H.Magic != kMagic && H.Magic != kMagicSFLW) { OutError = Format("Not a .gstx package: signature 0x%08llX, expected 0x%08llX (GSTX) or, for an older .sflw, 0x%08llX (SFLW).", H.Magic, kMagic, kMagicSFLW); return false; }
+		if (H.Version == 0 || H.Version > kMaxSupportedVersion) { OutError = Format("Package format version %llu is not supported (this plugin reads 1 to %llu).", H.Version, kMaxSupportedVersion); return false; }
+		if ((H.Magic == kMagic) != (H.Version >= 10)) { OutError = Format("The header is inconsistent: signature 0x%08llX with format version %llu (GSTX starts at version 10, SFLW ends at 9).", H.Magic, H.Version); return false; }
 		if (HeaderBytes < HeaderBytesForVersion(H.Version)) { OutError = "The file is truncated inside its header."; return false; }
 		if (H.Version < 4) { OutError = "Pre-v4 packages keep their manifest in a companion .json, which this plugin does not read. Re-bake the package in SplatLab."; return false; }
 
@@ -124,6 +128,7 @@ namespace SurfelsCore
 		if (Out.Format != ERecordFormat::Surfel8 && Out.Format != ERecordFormat::Splat20) { OutError = Format("Unknown surfel format %llu.", H.SurfelFormat); return false; }
 		Out.RecordBytes = (Out.Format == ERecordFormat::Splat20) ? 20u : 8u;
 		if (H.Version >= 8 && H.SplatRecordBytes != Out.RecordBytes) { OutError = "The declared record size does not match the surfel format."; return false; }
+		if (H.PayloadCodec > 1) { OutError = Format("Unknown payload codec %llu; the package was written by a newer SplatLab.", H.PayloadCodec); return false; }
 		if (Out.Format == ERecordFormat::Splat20 && !(H.SplatScaleLog2Max > H.SplatScaleLog2Min)) { OutError = "The splat scale range is empty or inverted; the package is corrupt."; return false; }
 
 		uint64_t Cursor = H.ManifestOffset;
@@ -192,7 +197,7 @@ namespace SurfelsCore
 			if (!Lod || Lod->SurfelCount == 0) continue;
 			if (Lod->FileOffset + (uint64_t)Lod->CompressedByteSize > Size) { OutError = "A chunk payload extends past the end of the file."; return false; }
 			Shuffled.resize(Lod->UncompressedByteSize);
-			if (!Surfels::ByteShuffle::DecompressShuffled(Data + Lod->FileOffset, Lod->CompressedByteSize, Shuffled.data(), Lod->UncompressedByteSize))
+			if (!Surfels::PayloadDecode::Decompress(Data + Lod->FileOffset, Lod->CompressedByteSize, Shuffled.data(), Lod->UncompressedByteSize, H.PayloadCodec))
 			{
 				OutError = Format("Chunk %llu holds data this codec build cannot decode; the package was baked with a different codec build or is corrupt.", c);
 				return false;

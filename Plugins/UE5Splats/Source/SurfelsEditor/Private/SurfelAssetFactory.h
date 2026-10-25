@@ -1,5 +1,5 @@
 // SurfelAssetFactory.h
-// Imports .sflw packages (drag into the Content Browser, or Import) as USurfelAsset.
+// Imports .gstx packages (and older .sflw ones) (drag into the Content Browser, or Import) as USurfelAsset.
 
 #pragma once
 

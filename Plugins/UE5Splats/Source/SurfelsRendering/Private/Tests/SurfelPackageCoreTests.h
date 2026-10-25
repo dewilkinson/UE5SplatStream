@@ -15,6 +15,6 @@ namespace SurfelsCoreTests
 	bool RunSyntheticPackageTests(std::vector<std::string>& OutFailures);
 
 	// Decodes the coarsest and finest levels of a real package and checks every position against
-	// the header bounds. Data is the whole .sflw file.
+	// the header bounds. Data is the whole package file.
 	bool RunRealPackageChecks(const unsigned char* Data, unsigned long long Size, std::vector<std::string>& OutFailures);
 }

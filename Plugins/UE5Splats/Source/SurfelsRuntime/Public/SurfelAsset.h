@@ -1,5 +1,5 @@
 // SurfelAsset.h
-// An imported .sflw package. The file is stored whole as bulk data (so it cooks and packages like
+// An imported .gstx package. The file is stored whole as bulk data (so it cooks and packages like
 // any asset); levels are decoded on demand and cached for every component that shows them.
 
 #pragma once
