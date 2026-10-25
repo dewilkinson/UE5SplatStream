@@ -6,7 +6,7 @@ import os
 
 import unreal
 
-SAMPLES_DIR = os.environ.get("SURFELS_SAMPLES", "C:/github/surfels/assets")
+SAMPLES_DIR = os.environ.get("SURFELS_SAMPLES", "C:/github/3DGSStream/assets")
 NAME = os.environ.get("DEMO_SAMPLE", "dwarves")
 LEVEL = int(os.environ.get("DEMO_LEVEL", "0"))
 EMISSIVE = float(os.environ.get("DEMO_EMISSIVE", "2"))

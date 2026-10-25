@@ -3,17 +3,17 @@
 # -CodecRepo points at a checkout that contains libs/bluesec-codec:
 #   - the public mirror (https://github.com/dewilkinson/splatlab, cloned with Git LFS): its
 #     prebuilt Release library is copied as is;
-#   - the private surfels repo: the library is built from source with CMake.
+#   - the private 3DGSStream repo: the library is built from source with CMake.
 # The staged files are gitignored and never committed here: the codec is not covered by this
 # repository's licence. Unreal links the release CRT (/MD) in every configuration, so only a
 # Release library is staged.
 param(
 	[Alias("SurfelsRepo")]
-	[string]$CodecRepo = "C:\github\surfels"
+	[string]$CodecRepo = "C:\github\3DGSStream"
 )
 $ErrorActionPreference = "Stop"
 $src = Join-Path $CodecRepo "libs\bluesec-codec"
-if (-not (Test-Path "$src\CMakeLists.txt")) { throw "bluesec-codec not found at $src. Pass -CodecRepo <path to a splatlab or surfels checkout>." }
+if (-not (Test-Path "$src\CMakeLists.txt")) { throw "bluesec-codec not found at $src. Pass -CodecRepo <path to a splatlab or 3DGSStream checkout>." }
 
 $dest = Resolve-Path "$PSScriptRoot\..\Plugins\UE5Splats\Source\ThirdParty\BluesecCodec"
 New-Item -ItemType Directory -Force "$dest\include", "$dest\lib\Win64" | Out-Null

@@ -13,7 +13,7 @@ import unreal
 
 PROJECT_DIR = unreal.Paths.convert_relative_path_to_full(unreal.Paths.project_dir())
 OUT_DIR = os.path.join(PROJECT_DIR, "Saved", "RenderCheck")
-SAMPLES_DIR = os.environ.get("SURFELS_SAMPLES", "C:/github/surfels/assets")
+SAMPLES_DIR = os.environ.get("SURFELS_SAMPLES", "C:/github/3DGSStream/assets")
 # Options (set by RenderCheck.ps1): which samples, which LOD level (-1 = coarsest), capture size,
 # extra captures at these emissive intensities, and whether to place the occluding cube.
 SAMPLES = [s for s in os.environ.get("RENDERCHECK_SAMPLES", "dwarves,venus").split(",") if s]

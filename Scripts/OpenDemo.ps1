@@ -6,7 +6,7 @@
 #   -Emissive 2       Emissive Intensity
 param(
 	[string]$Map = "",
-	[string]$Samples = "C:\github\surfels\assets",
+	[string]$Samples = "C:\github\3DGSStream\assets",
 	[string]$Sample = "dwarves",
 	[int]$Level = 0,
 	[string]$Emissive = "2",

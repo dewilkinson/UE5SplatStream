@@ -22,7 +22,7 @@ bool FSurfelPackageSyntheticTest::RunTest(const FString& Parameters)
 	return Failures.empty();
 }
 
-// Real scans from the surfels repo, when it's checked out next to this project (or SURFELS_REPO is set).
+// Real scans from the 3DGSStream repo, when it's checked out next to this project (or SURFELS_REPO is set).
 IMPLEMENT_COMPLEX_AUTOMATION_TEST(FSurfelPackageSampleTest, "Surfels.Package.Samples",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
@@ -31,7 +31,7 @@ void FSurfelPackageSampleTest::GetTests(TArray<FString>& OutBeautifiedNames, TAr
 	FString Repo = FPlatformMisc::GetEnvironmentVariable(TEXT("SURFELS_REPO"));
 	if (Repo.IsEmpty())
 	{
-		Repo = TEXT("C:/github/surfels");
+		Repo = TEXT("C:/github/3DGSStream");
 	}
 	TArray<FString> Files;
 	IFileManager::Get().FindFilesRecursive(Files, *FPaths::Combine(Repo, TEXT("assets")), TEXT("*.sflw"), true, false);

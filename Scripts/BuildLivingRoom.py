@@ -12,7 +12,7 @@ import unreal
 PROJECT_DIR = unreal.Paths.convert_relative_path_to_full(unreal.Paths.project_dir())
 MODELS_DIR = os.environ.get("ROOM_ASSETS_DIR", os.path.join(PROJECT_DIR, "ThirdPartyAssets", "polyhaven"))
 OUT_DIR = os.path.join(PROJECT_DIR, "Saved", "RenderCheck")
-SAMPLES_DIR = os.environ.get("SURFELS_SAMPLES", "C:/github/surfels/assets")
+SAMPLES_DIR = os.environ.get("SURFELS_SAMPLES", "C:/github/3DGSStream/assets")
 SPLAT = os.environ.get("ROOM_SPLAT", "dwarves")
 SPLAT_HEIGHT_CM = float(os.environ.get("ROOM_SPLAT_HEIGHT", "35"))
 SPLAT_EMISSIVE = float(os.environ.get("ROOM_SPLAT_EMISSIVE", "1"))

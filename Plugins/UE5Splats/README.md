@@ -50,7 +50,7 @@ tests also build and run outside Unreal (see Testing).
     decoding, and that corrupt files (bad magic, truncation, mismatched sizes, a future version)
     are rejected.
   - `Surfels.Package.Samples.<name>` decodes the coarsest and finest levels of every package
-    under `C:/github/surfels/assets` (set `SURFELS_REPO` to a surfels or splatlab checkout) and
+    under `C:/github/3DGSStream/assets` (set `SURFELS_REPO` to a 3DGSStream or splatlab checkout) and
     checks every position against the header bounds.
 - `Scripts/RenderCheck.ps1` renders `dwarves` and `venus` in the editor on the GPU (off-screen) on
   both paths and with the model hidden; `Scripts/CompareCaptures.ps1` compares the captures.

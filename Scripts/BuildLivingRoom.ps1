@@ -4,7 +4,7 @@
 #   -Splat dwarves   splat sample to stand on the coffee table   -Height 35   its height in cm
 #   -Emissive 1      its Emissive Intensity (the room uses auto exposure)
 param(
-	[string]$Samples = "C:\github\surfels\assets",
+	[string]$Samples = "C:\github\3DGSStream\assets",
 	[string]$Splat = "dwarves",
 	[string]$Height = "35",
 	[string]$Emissive = "1",

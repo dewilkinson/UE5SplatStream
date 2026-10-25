@@ -10,7 +10,7 @@
 #   -Warp                  render on Microsoft's software rasterizer, which supports mesh shaders
 # The first run compiles Unreal's shaders and can take a long time.
 param(
-	[string]$Samples = "C:\github\surfels\assets",
+	[string]$Samples = "C:\github\3DGSStream\assets",
 	[string[]]$Names = @("dwarves", "venus"),
 	[int]$Level = -1,
 	[string]$Resolution = "1280x720",
