@@ -25,15 +25,15 @@ design record in [docs/](../../docs/README.md): decisions, plan and journal.
 | `SurfelsRendering` | PostConfigInit | Shaders, the disc pass, the view extension, the `.sflw` format core. No UObjects (global shaders must register before the shader map is built). |
 | `SurfelsRuntime` | Default | `USurfelAsset`, `USurfelComponent`, `ASurfelActor`, the scene proxy. |
 | `SurfelsEditor` | Editor | `.sflw` import factory. |
-| `BluesecCodec` | External | The proprietary codec as a prebuilt static library. |
+| `GSTx` | External | The proprietary codec as a prebuilt static library. |
 
 `Source/SurfelsRendering/Public/SurfelPackageCore.h` is plain C++17, so the format code and its
 tests also build and run outside Unreal (see Testing).
 
 ## Building
 
-1. `Scripts/BuildCodec.ps1 -CodecRepo <checkout>` stages bluesec-codec into
-   `Source/ThirdParty/BluesecCodec/`: from a splatlab clone it copies the prebuilt library, from
+1. `Scripts/BuildCodec.ps1 -CodecRepo <checkout>` stages the GSTx codec library into
+   `Source/ThirdParty/GSTx/`: from a splatlab clone it copies the prebuilt library, from
    the private surfels repo it builds the library from source. The staged files aren't covered by
    this repository's licence and are **gitignored**; never commit them. `Scripts/Build.ps1` runs it
    automatically when the library is missing.

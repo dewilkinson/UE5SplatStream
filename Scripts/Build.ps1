@@ -3,7 +3,7 @@ param([string]$Config = "Development")
 $ErrorActionPreference = "Stop"
 
 # UE5Splats links the proprietary codec, staged from the surfels repo (gitignored here).
-if (-not (Test-Path "$PSScriptRoot\..\Plugins\UE5Splats\Source\ThirdParty\BluesecCodec\lib\Win64\bluesec-codec.lib")) {
+if (-not (Test-Path "$PSScriptRoot\..\Plugins\UE5Splats\Source\ThirdParty\GSTx\lib\Win64\gstx.lib")) {
 	& "$PSScriptRoot\BuildCodec.ps1"
 	if ($LASTEXITCODE) { exit $LASTEXITCODE }
 }

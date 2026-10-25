@@ -29,7 +29,7 @@ It's a port of the DirectX 12 renderer in [splatlab](https://github.com/dewilkin
 
 ## The codec
 
-`.sflw` packages are compressed by **bluesec-codec**, which is **not part of this repository and
+`.sflw` packages are compressed by the **GSTx codec library**, which is **not part of this repository and
 not covered by its licence**. The plugin links it as a prebuilt static library:
 
 ```powershell
@@ -39,9 +39,9 @@ git clone https://github.com/dewilkinson/splatlab.git C:\github\splatlab
 ```
 
 This copies splatlab's prebuilt codec library and headers into
-`Plugins/UE5Splats/Source/ThirdParty/BluesecCodec/`. That folder is gitignored. The prebuilt
+`Plugins/UE5Splats/Source/ThirdParty/GSTx/`. That folder is gitignored. The prebuilt
 library is distributed under its own binary licence
-(`libs/bluesec-codec/prebuilt/LICENSE.txt` in splatlab).
+(`libs/gstx/prebuilt/LICENSE.txt` in splatlab).
 
 If the prebuilt library isn't available, the script builds splatlab's open stand-in sources
 instead. The stand-in codec can't decode packages written by the real codec, so use the
@@ -66,7 +66,7 @@ the Content Browser, place a **Surfel Actor** and assign the imported asset.
 ## Licence
 
 Apache License 2.0; see [LICENSE](LICENSE). This covers the plugin, project and scripts in this
-repository. It does not cover bluesec-codec, which has its own terms.
+repository. It does not cover the GSTx codec library, which has its own terms.
 
 ## Demo scene
 

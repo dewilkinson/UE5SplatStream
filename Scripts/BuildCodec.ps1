@@ -1,6 +1,6 @@
-# Stages the bluesec-codec static library and headers for the UE5Splats plugin.
+# Stages the GSTx codec static library and headers for the UE5Splats plugin.
 #
-# -CodecRepo points at a checkout that contains libs/bluesec-codec:
+# -CodecRepo points at a checkout that contains libs/gstx:
 #   - the public mirror (https://github.com/dewilkinson/splatlab, cloned with Git LFS): its
 #     prebuilt Release library is copied as is;
 #   - the private 3DGSStream repo: the library is built from source with CMake.
@@ -12,13 +12,13 @@ param(
 	[string]$CodecRepo = "C:\github\3DGSStream"
 )
 $ErrorActionPreference = "Stop"
-$src = Join-Path $CodecRepo "libs\bluesec-codec"
-if (-not (Test-Path "$src\CMakeLists.txt")) { throw "bluesec-codec not found at $src. Pass -CodecRepo <path to a splatlab or 3DGSStream checkout>." }
+$src = Join-Path $CodecRepo "libs\gstx"
+if (-not (Test-Path "$src\CMakeLists.txt")) { throw "The GSTx codec library was not found at $src. Pass -CodecRepo <path to a splatlab or 3DGSStream checkout>." }
 
-$dest = Resolve-Path "$PSScriptRoot\..\Plugins\UE5Splats\Source\ThirdParty\BluesecCodec"
+$dest = Resolve-Path "$PSScriptRoot\..\Plugins\UE5Splats\Source\ThirdParty\GSTx"
 New-Item -ItemType Directory -Force "$dest\include", "$dest\lib\Win64" | Out-Null
 
-$prebuilt = Join-Path $src "prebuilt\Release\bluesec-codec.lib"
+$prebuilt = Join-Path $src "prebuilt\Release\gstx.lib"
 if ((Test-Path $prebuilt) -and (Get-Item $prebuilt).Length -ge 4096) {
 	# A real library, not an unpulled Git LFS pointer (those are ~130 bytes).
 	Copy-Item $prebuilt "$dest\lib\Win64" -Force
@@ -32,12 +32,12 @@ else {
 	if (-not (Test-Path $cmake)) { $cmake = "cmake" }
 
 	$build = Join-Path $dest "Intermediate"
-	& $cmake -S $src -B $build -G "Visual Studio 17 2022" -A x64 "-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDLL" "-DBLUESEC_CODEC_USE_PREBUILT=OFF"
+	& $cmake -S $src -B $build -G "Visual Studio 17 2022" -A x64 "-DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDLL" "-DGSTX_USE_PREBUILT=OFF"
 	if ($LASTEXITCODE) { exit $LASTEXITCODE }
 	& $cmake --build $build --config Release
 	if ($LASTEXITCODE) { exit $LASTEXITCODE }
-	Copy-Item "$build\Release\bluesec-codec.lib" "$dest\lib\Win64" -Force
+	Copy-Item "$build\Release\gstx.lib" "$dest\lib\Win64" -Force
 }
 
 Copy-Item "$src\*.h" "$dest\include" -Force
-Write-Host "Staged bluesec-codec into $dest"
+Write-Host "Staged the GSTx codec library into $dest"

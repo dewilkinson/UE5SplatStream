@@ -10,7 +10,7 @@ public class SurfelsRendering : ModuleRules
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 
 		PublicDependencyModuleNames.AddRange(new string[] { "Core", "RenderCore", "RHI" });
-		PrivateDependencyModuleNames.AddRange(new string[] { "CoreUObject", "Engine", "Renderer", "Projects", "BluesecCodec" });
+		PrivateDependencyModuleNames.AddRange(new string[] { "CoreUObject", "Engine", "Renderer", "Projects", "GSTx" });
 
 		// FViewInfo and FPostProcessingInputs live in the renderer's private and internal headers.
 		string RendererDir = Path.Combine(EngineDirectory, "Source", "Runtime", "Renderer");
