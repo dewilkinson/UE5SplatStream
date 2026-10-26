@@ -1,7 +1,7 @@
 # Splats UE plugin: journal
 
 Dated notes on what was done, what was found and how it was verified. Newest last. Decisions are
-in [decisions.md](decisions.md), the build order and status in [plan.md](plan.md).
+in the decision record (D1, D2, ...; kept in the private repository), the build order and status in [plan.md](plan.md).
 
 ## 2026-10-23
 

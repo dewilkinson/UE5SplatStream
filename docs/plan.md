@@ -1,7 +1,7 @@
 # Splats UE plugin: plan and status
 
 The build order and where each step stands. Decisions referenced as D*n* are in
-[decisions.md](decisions.md); dated progress and verification are in [journal.md](journal.md).
+the decision record (D1, D2, ...; kept in the private repository); dated progress and verification are in [journal.md](journal.md).
 
 **Status values:** *Not started*, *In progress*, *Written, not compiled* (code exists but hasn't
 been built against Unreal), *Done* (built, tested, and seen working in the engine).
