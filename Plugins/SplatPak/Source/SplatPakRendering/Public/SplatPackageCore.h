@@ -1,5 +1,5 @@
 // SplatPackageCore.h
-// Engine-independent .gstx (and older .sflw) reading for the SplatPak plugin: the on-disk layout (mirrors
+// Engine-independent .gstx reading for the SplatPak plugin: the on-disk layout (mirrors
 // WaveletTypes.h in the 3DGSStream repo), header/manifest validation, decoding one level into
 // GPU-ready records, and splitting it into the 64-splat meshlets the draw shaders consume.
 // Plain C++17 so the same code builds inside the UE module and in a native test harness.
@@ -18,15 +18,14 @@
 
 namespace SplatCore
 {
-	static constexpr uint32_t kMagic = 0x58545347;     // "GSTX": format version 10 and later (.gstx)
-	static constexpr uint32_t kMagicSFLW = 0x574C4653; // "SFLW": versions 1 to 9 (.sflw)
-	static constexpr uint32_t kMaxSupportedVersion = 13;
+	static constexpr uint32_t kMagic = 0x58545347;     // "GSTX" (.gstx)
+	static constexpr uint32_t kFormatVersion = 13;     // The only format version read; older packages are baked again
 	static constexpr uint32_t kMaxOcclusionMips = 4;
 	static constexpr uint32_t kSplatsPerMeshlet = 64; // SPLATS_PER_GROUP in the shaders
 
 	enum class ERecordFormat : uint32_t
 	{
-		Point8 = 0, // PackedPointGPU (legacy 8-byte record): 10:10:10:2 position, oct16 normal, RGB565
+		Point8 = 0, // PackedPointGPU (8-byte record, no longer read): 10:10:10:2 position, oct16 normal, RGB565
 		Splat20 = 1, // PackedSplatGPU: 16-bit position, log2 scales, opacity, DC colour, rotation
 	};
 
@@ -169,7 +168,7 @@ namespace SplatCore
 		std::vector<uint32_t> Colours;
 		std::vector<uint32_t> Indices;
 	};
-	inline bool HasShadowMesh(const FPackageInfo& Info) { return Info.Header.Version >= 12 && Info.Header.ShadowMeshOffset != 0; }
+	inline bool HasShadowMesh(const FPackageInfo& Info) { return Info.Header.ShadowMeshOffset != 0; }
 	SPLATPAKRENDERING_API bool ReadShadowMesh(const uint8_t* Data, uint64_t Size, const FPackageInfo& Info,
 		std::vector<FShadowMeshLevel>& OutLevels, std::string& OutError);
 }

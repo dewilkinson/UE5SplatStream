@@ -21,22 +21,6 @@ namespace SplatCore
 {
 	namespace
 	{
-		// Bytes a writer of each format version put in its header (the struct grew by appending).
-		size_t HeaderBytesForVersion(uint32_t Version)
-		{
-			if (Version < 2) return offsetof(FFileHeader, SplatRadius);
-			if (Version < 3) return offsetof(FFileHeader, OcclusionVoxelCount);
-			if (Version < 4) return offsetof(FFileHeader, ManifestOffset);
-			if (Version < 5) return offsetof(FFileHeader, SourceFileBytes);
-			if (Version < 6) return offsetof(FFileHeader, OcclusionMipCount);
-			if (Version < 7) return offsetof(FFileHeader, DetailGridDims);
-			if (Version < 8) return offsetof(FFileHeader, RecordFormat);
-			if (Version < 9) return offsetof(FFileHeader, PayloadCodec);
-			if (Version < 12) return offsetof(FFileHeader, ShadowMeshOffset);
-			if (Version < 13) return offsetof(FFileHeader, OccluderMeshOffset);
-			return sizeof(FFileHeader);
-		}
-
 		std::string Format(const char* Fmt, unsigned long long A = 0, unsigned long long B = 0, unsigned long long C = 0)
 		{
 			char Buf[256];
@@ -116,37 +100,37 @@ namespace SplatCore
 		if (HeaderBytes < 8) { OutError = "The file is too small to be a .gstx package."; return false; }
 		memcpy(&H, Data, HeaderBytes);
 
-		if (H.Magic != kMagic && H.Magic != kMagicSFLW) { OutError = Format("Not a .gstx package: signature 0x%08llX, expected 0x%08llX (GSTX) or, for an older .sflw, 0x%08llX (SFLW).", H.Magic, kMagic, kMagicSFLW); return false; }
-		if (H.Version == 0 || H.Version > kMaxSupportedVersion) { OutError = Format("Package format version %llu is not supported (this plugin reads 1 to %llu).", H.Version, kMaxSupportedVersion); return false; }
-		if ((H.Magic == kMagic) != (H.Version >= 10)) { OutError = Format("The header is inconsistent: signature 0x%08llX with format version %llu (GSTX starts at version 10, SFLW ends at 9).", H.Magic, H.Version); return false; }
-		if (HeaderBytes < HeaderBytesForVersion(H.Version)) { OutError = "The file is truncated inside its header."; return false; }
-		if (H.Version < 4) { OutError = "Pre-v4 packages keep their manifest in a companion .json, which this plugin does not read. Re-bake the package in SplatLab."; return false; }
-
-		// Zero whatever a shorter, older header did not contain (it read into the payload).
-		memset(reinterpret_cast<uint8_t*>(&H) + HeaderBytesForVersion(H.Version), 0, sizeof(FFileHeader) - HeaderBytesForVersion(H.Version));
+		if (H.Magic != kMagic) { OutError = Format("Not a .gstx package: signature 0x%08llX, expected 0x%08llX (GSTX).", H.Magic, kMagic); return false; }
+		if (H.Version != kFormatVersion)
+		{
+			OutError = H.Version > kFormatVersion
+				? Format("Package format version %llu is newer than this plugin reads (%llu).", H.Version, kFormatVersion)
+				: Format("Package format version %llu is no longer read (this plugin reads %llu). Bake it again in SplatLab.", H.Version, kFormatVersion);
+			return false;
+		}
+		if (HeaderBytes < sizeof(FFileHeader)) { OutError = "The file is truncated inside its header."; return false; }
 
 		if (H.NumChunks == 0 || H.NumChunks > 16u * 1024u * 1024u) { OutError = Format("Implausible chunk count %llu; the header is corrupt.", H.NumChunks); return false; }
 		if (H.ManifestOffset == 0 || H.ManifestOffset >= Size) { OutError = "The chunk manifest offset lies outside the file; the package is corrupt or truncated."; return false; }
 
-		Out.Format = (H.Version >= 8) ? (ERecordFormat)H.RecordFormat : ERecordFormat::Point8;
-		if (Out.Format != ERecordFormat::Point8 && Out.Format != ERecordFormat::Splat20) { OutError = Format("Unknown record format %llu.", H.RecordFormat); return false; }
-		Out.RecordBytes = (Out.Format == ERecordFormat::Splat20) ? 20u : 8u;
-		if (H.Version >= 8 && H.SplatRecordBytes != Out.RecordBytes) { OutError = "The declared record size does not match the splat format."; return false; }
+		Out.Format = (ERecordFormat)H.RecordFormat;
+		if (Out.Format != ERecordFormat::Splat20) { OutError = Format("Record format %llu is not read; this plugin reads 3D Gaussian packages (format 1).", H.RecordFormat); return false; }
+		Out.RecordBytes = 20u;
+		if (H.SplatRecordBytes != Out.RecordBytes) { OutError = "The declared record size does not match the splat format."; return false; }
 		if (H.PayloadCodec > 1) { OutError = Format("Unknown payload codec %llu; the package was written by a newer SplatLab.", H.PayloadCodec); return false; }
-		if (H.Version < 11) H.PayloadTransforms = 0; // Padding before version 11, always written as 0
-		if (H.ShadowMeshOffset != 0 && (H.ShadowMeshOffset < HeaderBytesForVersion(H.Version) || H.ShadowMeshBytes == 0 || H.ShadowMeshOffset + H.ShadowMeshBytes > Size))
+		if (H.ShadowMeshOffset != 0 && (H.ShadowMeshOffset < sizeof(FFileHeader) || H.ShadowMeshBytes == 0 || H.ShadowMeshOffset + H.ShadowMeshBytes > Size))
 		{
 			OutError = "The shadow mesh section lies outside the file; the package is truncated or corrupt.";
 			return false;
 		}
-		// The occluder mesh (v13) is not used here, as Unreal's own depth occludes the splats, but it is validated
-		if (H.OccluderMeshOffset != 0 && (H.OccluderMeshOffset < HeaderBytesForVersion(H.Version) || H.OccluderMeshBytes == 0 || H.OccluderMeshOffset + H.OccluderMeshBytes > Size))
+		// The occluder mesh is not used here, as Unreal's own depth occludes the splats, but it is validated
+		if (H.OccluderMeshOffset != 0 && (H.OccluderMeshOffset < sizeof(FFileHeader) || H.OccluderMeshBytes == 0 || H.OccluderMeshOffset + H.OccluderMeshBytes > Size))
 		{
 			OutError = "The occluder mesh section lies outside the file; the package is truncated or corrupt.";
 			return false;
 		}
 		if (H.PayloadTransforms & ~(uint32_t)Splat::PAYLOAD_TRANSFORMS_KNOWN) { OutError = Format("Unknown payload transforms 0x%llX; the package was written by a newer SplatLab.", H.PayloadTransforms); return false; }
-		if (Out.Format == ERecordFormat::Splat20 && !(H.SplatScaleLog2Max > H.SplatScaleLog2Min)) { OutError = "The splat scale range is empty or inverted; the package is corrupt."; return false; }
+		if (!(H.SplatScaleLog2Max > H.SplatScaleLog2Min)) { OutError = "The splat scale range is empty or inverted; the package is corrupt."; return false; }
 
 		uint64_t Cursor = H.ManifestOffset;
 		Out.Chunks.resize(H.NumChunks);

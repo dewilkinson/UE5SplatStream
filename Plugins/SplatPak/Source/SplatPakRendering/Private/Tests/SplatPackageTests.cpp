@@ -1,5 +1,5 @@
 // SplatPackageTests.cpp
-// Unreal automation tests for the package format core (.gstx, and older .sflw). Run with Scripts/Test.ps1 -Filter SplatPak.
+// Unreal automation tests for the package format core (.gstx). Run with Scripts/Test.ps1 -Filter SplatPak.
 
 #include "Misc/AutomationTest.h"
 #include "Misc/FileHelper.h"
@@ -35,7 +35,6 @@ void FSplatPackageSampleTest::GetTests(TArray<FString>& OutBeautifiedNames, TArr
 	}
 	TArray<FString> Files;
 	IFileManager::Get().FindFilesRecursive(Files, *FPaths::Combine(Repo, TEXT("assets")), TEXT("*.gstx"), true, false);
-	IFileManager::Get().FindFilesRecursive(Files, *FPaths::Combine(Repo, TEXT("assets")), TEXT("*.sflw"), true, false, false); // false: keep the .gstx found above
 	for (const FString& File : Files)
 	{
 		OutBeautifiedNames.Add(FPaths::GetBaseFilename(File));

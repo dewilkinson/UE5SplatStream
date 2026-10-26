@@ -42,7 +42,7 @@ namespace SplatCoreTests
 			const uint32_t RecordBytes = (Format == ERecordFormat::Splat20) ? 20u : 8u;
 			FFileHeader H = {};
 			H.Magic = kMagic;
-			H.Version = kMaxSupportedVersion;
+			H.Version = kFormatVersion;
 			H.PayloadCodec = 0; // The run-length stage (ByteShuffle::CompressShuffled below); v9+ writers choose per package
 			H.NumChunks = (uint32_t)Chunks.size();
 			H.BoundsMin = { -1.0f, 0.0f, -2.0f };
@@ -171,24 +171,20 @@ namespace SplatCoreTests
 
 			Bad = File;
 			FFileHeader Future = H;
-			Future.Version = kMaxSupportedVersion + 1;
+			Future.Version = kFormatVersion + 1;
 			memcpy(Bad.data(), &Future, sizeof(Future));
 			Check(!ReadPackageInfo(Bad.data(), Bad.size(), Info, Error), Tag("future format version accepted"));
 
-			// An older .sflw (signature SFLW, version 8) still reads; GSTX with a pre-10 version, or SFLW with 10, does not
+			// Earlier versions are no longer read, nor the old SFLW signature
 			Bad = File;
-			FFileHeader Legacy = H;
-			Legacy.Magic = kMagicSFLW;
-			Legacy.Version = 8;
-			memcpy(Bad.data(), &Legacy, sizeof(Legacy));
-			Check(ReadPackageInfo(Bad.data(), Bad.size(), Info, Error), Tag("SFLW version 8 package rejected: ") + Error);
-			Legacy.Magic = kMagic;
-			memcpy(Bad.data(), &Legacy, sizeof(Legacy));
-			Check(!ReadPackageInfo(Bad.data(), Bad.size(), Info, Error), Tag("GSTX signature with version 8 accepted"));
-			Legacy.Magic = kMagicSFLW;
-			Legacy.Version = kMaxSupportedVersion;
-			memcpy(Bad.data(), &Legacy, sizeof(Legacy));
-			Check(!ReadPackageInfo(Bad.data(), Bad.size(), Info, Error), Tag("SFLW signature with version 10 accepted"));
+			FFileHeader Old = H;
+			Old.Version = kFormatVersion - 1;
+			memcpy(Bad.data(), &Old, sizeof(Old));
+			Check(!ReadPackageInfo(Bad.data(), Bad.size(), Info, Error), Tag("earlier format version accepted"));
+			Old = H;
+			Old.Magic = 0x574C4653; // "SFLW"
+			memcpy(Bad.data(), &Old, sizeof(Old));
+			Check(!ReadPackageInfo(Bad.data(), Bad.size(), Info, Error), Tag("SFLW signature accepted"));
 		}
 	}
 
@@ -206,7 +202,6 @@ namespace SplatCoreTests
 			Check(std::fabs(N.X - A.Ex) < 1e-3f && std::fabs(N.Y - A.Ey) < 1e-3f && std::fabs(N.Z - A.Ez) < 1e-3f, "DecodeOct16 axis mismatch");
 		}
 
-		CheckFormat(ERecordFormat::Point8, Check);
 		CheckFormat(ERecordFormat::Splat20, Check);
 		return Check.Ok;
 	}
@@ -247,11 +242,10 @@ namespace SplatCoreTests
 			Check(L.PointSpacing > 0.0f, "point spacing not measured");
 		}
 
-		// Shadow mesh (v12): present, three levels each at most half the previous, valid indices, inside the bounds
-		if (Info.Header.Version >= 12)
+		// Shadow mesh: present, three levels each at most half the previous, valid indices, inside the bounds
 		{
 			std::vector<FShadowMeshLevel> Mesh;
-			Check(HasShadowMesh(Info), "a version 12 package without a shadow mesh section");
+			Check(HasShadowMesh(Info), "a package without a shadow mesh section");
 			if (HasShadowMesh(Info))
 			{
 				const bool bRead = ReadShadowMesh(Data, Size, Info, Mesh, Error);
