@@ -14,6 +14,7 @@ MODELS_DIR = os.environ.get("ROOM_ASSETS_DIR", os.path.join(PROJECT_DIR, "ThirdP
 OUT_DIR = os.path.join(PROJECT_DIR, "Saved", "RenderCheck")
 SAMPLES_DIR = os.environ.get("SPLATPAK_SAMPLES", "C:/github/3DGSStream/assets")
 SPLAT = os.environ.get("ROOM_SPLAT", "dwarves")
+REIMPORT = os.environ.get("ROOM_REIMPORT", "0") == "1"  # Import the samples again over existing assets (a new package format)
 SPLAT_HEIGHT_CM = float(os.environ.get("ROOM_SPLAT_HEIGHT", "35"))
 SPLAT_EMISSIVE = float(os.environ.get("ROOM_SPLAT_EMISSIVE", "1"))
 MAP = "/Game/Demo/Map_LivingRoom"
@@ -240,12 +241,13 @@ def build_fireplace(center_x, wall_y, brick, plaster):
 
 
 def place_splat(name, on_actor, height_cm, level, emissive, offset=(0.0, 0.0)):
-    # Imports a sample scan if needed, scales it to height_cm and stands it on top of on_actor.
-    if not assets.does_asset_exist("/Game/Demo/" + name):
+    # Imports a sample scan if needed (or always, with REIMPORT), scales it to height_cm and stands it on top of on_actor.
+    if REIMPORT or not assets.does_asset_exist("/Game/Demo/" + name):
         task = unreal.AssetImportTask()
         task.filename = os.path.join(SAMPLES_DIR, name, name + ".gstx").replace("\\", "/")
         task.destination_path = "/Game/Demo"
         task.automated = True
+        task.replace_existing = True
         task.save = True
         unreal.AssetToolsHelpers.get_asset_tools().import_asset_tasks([task])
     base_origin, _ = on_actor.get_actor_bounds(False)
