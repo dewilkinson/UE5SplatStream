@@ -23,7 +23,7 @@ enum class ESplatOrient : uint32
 
 struct FSplatDrawSettings
 {
-	float SplatScale = 1.0f;  // g_Radius in SplatLab: multiplies every disc radius
+	float SplatScale = 1.0f;  // g_Radius in SplatPak: multiplies every disc radius
 	float Coverage = 1.2f;    // Disc radius as a multiple of the level's point spacing (Auto Splat Size)
 	ESplatOrient Orient = ESplatOrient::Disc;
 	float EmissiveIntensity = 1.0f; // Multiplies the stored colour, which is drawn as emissive light

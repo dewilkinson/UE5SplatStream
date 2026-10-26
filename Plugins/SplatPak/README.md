@@ -1,7 +1,7 @@
 # SplatPak
 
 Renders `.gstx` packages (compressed 3D Gaussian splat scans; older `.sflw` packages too) inside Unreal's renderer.
-A port of the DX12 renderer in [splatlab](https://github.com/dewilkinson/splatlab), following the
+A port of the DX12 renderer in [splatpak](https://github.com/dewilkinson/splatpak), following the
 design record in [docs/](../../docs/README.md): decisions, plan and journal.
 
 ## Status: step 1 (opaque discs, one resident level)
@@ -15,7 +15,7 @@ design record in [docs/](../../docs/README.md): decisions, plan and journal.
 - **Mesh shaders are the default** (`r.SplatPak.MeshShaders 1`): an amplification shader frustum-
   culls 32 meshlets per group, and a mesh shader emits 64 discs per meshlet. Hardware without Mesh
   Shader Tier 1 (or `r.SplatPak.MeshShaders 0`) uses the instanced vertex-shader fallback.
-- The colour is SplatLab's own: its fixed two-sided key light on 8-byte point records and unlit DC colour
+- The colour is SplatPak's own: its fixed two-sided key light on 8-byte point records and unlit DC colour
   on splat records, converted to linear and pre-exposed. Unreal's lights don't affect it yet.
 - **Shadows, Lumen and collision from the shadow mesh** (format v12): importing a package that carries one also creates
   `<name>_ShadowMesh`, a static mesh with three LODs following the model's visible surface (distance field on,
@@ -39,7 +39,7 @@ tests also build and run outside Unreal (see Testing).
 ## Building
 
 1. `Scripts/BuildCodec.ps1 -CodecRepo <checkout>` stages the GSTx codec library into
-   `Source/ThirdParty/GSTx/`: from a splatlab clone it copies the prebuilt library, from
+   `Source/ThirdParty/GSTx/`: from a splatpak clone it copies the prebuilt library, from
    the private 3DGSStream repo it builds the library from source. The staged files aren't covered by
    this repository's licence and are **gitignored**; never commit them. `Scripts/Build.ps1` runs it
    automatically when the library is missing.
@@ -56,7 +56,7 @@ tests also build and run outside Unreal (see Testing).
     decoding, and that corrupt files (bad magic, truncation, mismatched sizes, a future version)
     are rejected.
   - `SplatPak.Package.Samples.<name>` decodes the coarsest and finest levels of every package
-    under `C:/github/3DGSStream/assets` (set `SPLATPAK_REPO` to a 3DGSStream or splatlab checkout) and
+    under `C:/github/3DGSStream/assets` (set `SPLATPAK_REPO` to a 3DGSStream or splatpak checkout) and
     checks every position against the header bounds.
 - `Scripts/RenderCheck.ps1` renders `dwarves` and `venus` in the editor on the GPU (off-screen) on
   both paths and with the model hidden; `Scripts/CompareCaptures.ps1` compares the captures.
@@ -98,7 +98,7 @@ Still to confirm at runtime: that `SplatPakRendering` loading at `PostConfigInit
   (steps 2 to 4).
 - **Editor picking:** clicking the discs doesn't select the actor; select it in the Outliner.
 
-## Open question about SplatLab itself
+## Open question about SplatPak itself
 
 `PackNormalOct16` (WaveletTypes.h) writes the two octahedral components as **signed** bytes,
 but `UnpackNormalOct16` in `Splat.hlsl` decodes them as **unsigned** (`b * 2/255 - 1`), so +0.5

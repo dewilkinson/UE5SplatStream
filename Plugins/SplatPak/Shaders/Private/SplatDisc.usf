@@ -5,14 +5,14 @@
 //  - Unreal matrices are row-vector: mul(float4(p, 1), ModelToClip).
 //  - Records are read from one uint buffer (WordsPerRecord words each) so both formats share a path.
 //  - Discs are hard-edged and opaque (depth write, no blending): they land in Unreal's depth buffer
-//    for TSR and occlusion. SplatLab's soft blended disc edge returns with the sorted splat pass.
+//    for TSR and occlusion. SplatPak's soft blended disc edge returns with the sorted splat pass.
 //  - Oct16 normals are decoded as the two signed bytes PackNormalOct16 writes (Splat.hlsl reads
 //    them as unsigned; see the note in the plugin docs).
 //  - Splat records draw with their DC colour only; spherical harmonics arrive with step 3.
 //  - Output is linear and pre-exposed, as Unreal's scene colour expects, scaled by EmissiveIntensity:
 //    the stored colours are baked light, so they behave like an emissive surface under Unreal's exposure.
 // Chunk-level culling: frustum test in the amplification shader; the vertex fallback leaves it to
-// the rasterizer, as SplatLab does. Normal-cone culling arrives with step 2.
+// the rasterizer, as SplatPak does. Normal-cone culling arrives with step 2.
 
 #include "/Engine/Private/Common.ush"
 
@@ -67,7 +67,7 @@ static const float2 QuadCorners[4] = { float2(-1.0, -1.0), float2(1.0, -1.0), fl
 static const uint QuadVertexCorner[6] = { 0, 1, 2, 1, 3, 2 };
 // A vertex the rasterizer drops: z < 0 is clipped whichever way the depth range runs.
 static const float4 CulledClipPos = float4(0.0, 0.0, -2.0, 1.0);
-// About one screen pixel of world radius per unit of distance (kPixelRadiusPerDistance in SplatLab).
+// About one screen pixel of world radius per unit of distance (kPixelRadiusPerDistance in SplatPak).
 static const float PixelRadiusPerDistance = 0.00075;
 
 // ---------------------------------------------------------------------------------------------
@@ -141,7 +141,7 @@ void SplatTangents(float3 Normal, float Radius, out float3 TangentX, out float3 
 	}
 }
 
-// Sub-pixel discs become camera-facing dots of at least a pixel (SolidDot in SplatLab).
+// Sub-pixel discs become camera-facing dots of at least a pixel (SolidDot in SplatPak).
 void SolidDot(float DistToCam, inout float3 TangentX, inout float3 TangentY)
 {
 	float OnePixel = DistToCam * PixelRadiusPerDistance;
@@ -235,7 +235,7 @@ bool BuildDisc(uint SplatIndex, out FSplatDisc Disc)
 
 	if (bLit)
 	{
-		// SplatLab's two-sided key light; Lumen lighting through the GBuffer replaces it later
+		// SplatPak's two-sided key light; Lumen lighting through the GBuffer replaces it later
 		Disc.Color *= 0.35 + 0.65 * abs(dot(Normal, LightDirModel));
 	}
 	return true;

@@ -27,7 +27,7 @@ UStaticMesh* USplatAssetFactory::BuildShadowMesh(USplatAsset* Asset, UObject* Ou
 		}
 		else
 		{
-			UE_LOG(LogSplatPakImport, Log, TEXT("%s has no shadow mesh (format %d): it casts no shadow. Rebake it in SplatLab to add one."), *InName.ToString(), Asset->FormatVersion);
+			UE_LOG(LogSplatPakImport, Log, TEXT("%s has no shadow mesh (format %d): it casts no shadow. Rebake it in SplatPak to add one."), *InName.ToString(), Asset->FormatVersion);
 		}
 		return nullptr;
 	}

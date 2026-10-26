@@ -36,7 +36,7 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "SplatPak", meta = (ClampMin = "-1"))
 	int32 ResidentLevel = -1;
 
-	// Multiplies every disc radius (g_Radius in SplatLab).
+	// Multiplies every disc radius (g_Radius in SplatPak).
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "SplatPak", meta = (ClampMin = "0.05", ClampMax = "8.0"))
 	float SplatScale = 1.0f;
 

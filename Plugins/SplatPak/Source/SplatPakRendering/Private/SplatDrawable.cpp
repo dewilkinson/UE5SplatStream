@@ -118,7 +118,7 @@ void FSplatDrawable::AddDiscPass(FRDGBuilder& GraphBuilder, const FViewInfo& Vie
 		Meshlets = GraphBuilder.RegisterExternalBuffer(MeshletBuffer);
 	}
 
-	// The shaders work in model space, exactly like SplatLab; only the matrices change. Going through
+	// The shaders work in model space, exactly like SplatPak; only the matrices change. Going through
 	// translated world space keeps large-world coordinates precise.
 	const FMatrix ModelToWorld = GetModelToWorld();
 	const FMatrix WorldToModel = ModelToWorld.Inverse();
@@ -140,7 +140,7 @@ void FSplatDrawable::AddDiscPass(FRDGBuilder& GraphBuilder, const FViewInfo& Vie
 	Parameters->RecordFormat = (uint32)Data.Format;
 	Parameters->WordsPerRecord = Data.RecordBytes / sizeof(uint32);
 	Parameters->MeshletCount = MeshletCount;
-	Parameters->LightDirModel = FVector3f(0.5f, 0.8f, 0.6f).GetSafeNormal(); // SplatLab's fixed key light
+	Parameters->LightDirModel = FVector3f(0.5f, 0.8f, 0.6f).GetSafeNormal(); // SplatPak's fixed key light
 	Parameters->OrientMode = (uint32)Settings.Orient;
 	Parameters->ScaleLog2Min = Data.ScaleLog2Min;
 	Parameters->ScaleLog2Max = Data.ScaleLog2Max;

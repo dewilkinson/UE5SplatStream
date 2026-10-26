@@ -2,7 +2,7 @@
 
 The home of **SplatPak**, an Unreal Engine 5 plugin that renders compressed 3D Gaussian splat scans (`.gstx` packages) inside
 Unreal's own renderer, so they sit in a level next to Nanite meshes and occlude them correctly.
-It's a port of the DirectX 12 renderer in [splatlab](https://github.com/dewilkinson/splatlab).
+It's a port of the DirectX 12 renderer in [splatpak](https://github.com/dewilkinson/splatpak).
 
 > **Status: early development (step 1 of 5).** The `.gstx` loader and its tests pass; the Unreal
 > side is being brought up on UE 5.8 and hasn't been seen rendering yet. See
@@ -34,20 +34,20 @@ not covered by its licence**. The plugin links it as a prebuilt static library:
 
 ```powershell
 git lfs install
-git clone https://github.com/dewilkinson/splatlab.git C:\github\splatlab
-.\Scripts\BuildCodec.ps1 -CodecRepo C:\github\splatlab
+git clone https://github.com/dewilkinson/splatpak.git C:\github\splatpak
+.\Scripts\BuildCodec.ps1 -CodecRepo C:\github\splatpak
 ```
 
-This copies splatlab's prebuilt codec library and headers into
+This copies splatpak's prebuilt codec library and headers into
 `Plugins/SplatPak/Source/ThirdParty/GSTx/`. That folder is gitignored. The prebuilt
 library is distributed under its own binary licence
-(`libs/gstx/prebuilt/LICENSE.txt` in splatlab).
+(`libs/gstx/prebuilt/LICENSE.txt` in splatpak).
 
-If the prebuilt library isn't available, the script builds splatlab's open stand-in sources
+If the prebuilt library isn't available, the script builds splatpak's open stand-in sources
 instead. The stand-in codec can't decode packages written by the real codec, so use the
 prebuilt library to load the sample scans.
 
-> **Known issue: toolset mismatch.** splatlab's current prebuilt library was compiled with MSVC
+> **Known issue: toolset mismatch.** splatpak's current prebuilt library was compiled with MSVC
 > 14.51, and a static library has to be linked with the same MSVC version or a newer one. Linking
 > it with 14.44 (VS 2022) fails with `unresolved external symbol __std_rotate`; 14.50 is older
 > than 14.51 too, so expect the same there. Until the prebuilt library is rebuilt with an older
@@ -60,7 +60,7 @@ prebuilt library to load the sample scans.
 .\Scripts\Test.ps1 -Filter SplatPak  # automation tests, headless
 ```
 
-Then open `PluginSandbox.uproject`, drag a `.gstx` (for example from splatlab's `assets/`) into
+Then open `PluginSandbox.uproject`, drag a `.gstx` (for example from splatpak's `assets/`) into
 the Content Browser, place a **Splat Actor** and assign the imported asset.
 
 ## Licence

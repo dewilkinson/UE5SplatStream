@@ -87,7 +87,7 @@ in the decision record (D1, D2, ...; kept in the private repository), the build 
   from `Splats` to `UE5Splats` (so paths in earlier entries now read `Plugins/UE5Splats/...`),
   `MyPlugin` was removed, an Apache-2.0 `LICENSE` and a root README were added, and the two local
   commits were rewritten to the GitHub noreply identity before any push. `BuildCodec.ps1` now
-  also accepts a splatlab clone and copies its prebuilt codec.
+  also accepts a splatpak clone and copies its prebuilt codec.
 - **First build:** failed with five errors, all in plugin code:
   - Three were UE 5.8 API changes: `CFLAG_ForceDXC` needs `ShaderCompilerCore.h`,
     `GetParameters()` returns a wrapper (`GetContents()`), and `FMatrix` transforms return
@@ -114,11 +114,11 @@ in the decision record (D1, D2, ...; kept in the private repository), the build 
 
 ### Codec toolset mismatch found
 
-- While building splatlab with VS 2022, its prebuilt `bluesec-codec.lib` failed to link
+- While building splatpak with VS 2022, its prebuilt `bluesec-codec.lib` failed to link
   (`unresolved external symbol __std_rotate`). The library's embedded compiler string shows it was
   built with **MSVC 14.51**; this machine has 14.44. A static library must be linked with the same
   MSVC version or a newer one, and UE 5.8's supported toolsets (14.44, 14.50) are both older.
-- So UE5Splats' public route (stage splatlab's prebuilt library with `BuildCodec.ps1`) can't link
+- So UE5Splats' public route (stage splatpak's prebuilt library with `BuildCodec.ps1`) can't link
   on UE 5.8's toolsets yet. The builds and tests above used a codec built from source with 14.44.
   The README now states this as a known issue.
 

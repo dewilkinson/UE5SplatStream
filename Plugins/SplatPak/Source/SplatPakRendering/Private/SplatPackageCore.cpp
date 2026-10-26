@@ -30,7 +30,7 @@ namespace SplatCore
 
 		FVec3 Sub(FVec3 A, FVec3 B) { return { A.X - B.X, A.Y - B.Y, A.Z - B.Z }; }
 
-		// Median nearest-neighbour distance over a sample of the level (ComputeLodSpacing in SplatLab).
+		// Median nearest-neighbour distance over a sample of the level (ComputeLodSpacing in SplatPak).
 		float ComputePointSpacing(const FDecodedLevel& Level)
 		{
 			const uint32_t Total = Level.SplatCount;
@@ -105,7 +105,7 @@ namespace SplatCore
 		{
 			OutError = H.Version > kFormatVersion
 				? Format("Package format version %llu is newer than this plugin reads (%llu).", H.Version, kFormatVersion)
-				: Format("Package format version %llu is no longer read (this plugin reads %llu). Bake it again in SplatLab.", H.Version, kFormatVersion);
+				: Format("Package format version %llu is no longer read (this plugin reads %llu). Bake it again in SplatPak.", H.Version, kFormatVersion);
 			return false;
 		}
 		if (HeaderBytes < sizeof(FFileHeader)) { OutError = "The file is truncated inside its header."; return false; }
@@ -117,7 +117,7 @@ namespace SplatCore
 		if (Out.Format != ERecordFormat::Splat20) { OutError = Format("Record format %llu is not read; this plugin reads 3D Gaussian packages (format 1).", H.RecordFormat); return false; }
 		Out.RecordBytes = 20u;
 		if (H.SplatRecordBytes != Out.RecordBytes) { OutError = "The declared record size does not match the splat format."; return false; }
-		if (H.PayloadCodec > 1) { OutError = Format("Unknown payload codec %llu; the package was written by a newer SplatLab.", H.PayloadCodec); return false; }
+		if (H.PayloadCodec > 1) { OutError = Format("Unknown payload codec %llu; the package was written by a newer SplatPak.", H.PayloadCodec); return false; }
 		if (H.ShadowMeshOffset != 0 && (H.ShadowMeshOffset < sizeof(FFileHeader) || H.ShadowMeshBytes == 0 || H.ShadowMeshOffset + H.ShadowMeshBytes > Size))
 		{
 			OutError = "The shadow mesh section lies outside the file; the package is truncated or corrupt.";
@@ -129,7 +129,7 @@ namespace SplatCore
 			OutError = "The occluder mesh section lies outside the file; the package is truncated or corrupt.";
 			return false;
 		}
-		if (H.PayloadTransforms & ~(uint32_t)Splat::PAYLOAD_TRANSFORMS_KNOWN) { OutError = Format("Unknown payload transforms 0x%llX; the package was written by a newer SplatLab.", H.PayloadTransforms); return false; }
+		if (H.PayloadTransforms & ~(uint32_t)Splat::PAYLOAD_TRANSFORMS_KNOWN) { OutError = Format("Unknown payload transforms 0x%llX; the package was written by a newer SplatPak.", H.PayloadTransforms); return false; }
 		if (!(H.SplatScaleLog2Max > H.SplatScaleLog2Min)) { OutError = "The splat scale range is empty or inverted; the package is corrupt."; return false; }
 
 		uint64_t Cursor = H.ManifestOffset;
@@ -210,7 +210,7 @@ namespace SplatCore
 				Splat::ColourTransform::UndoRecords(Dst, Lod->SplatCount, Info.RecordBytes); // Colour back to RGB (v11)
 			}
 
-			// 64 consecutive splats per meshlet, as SplatLab does (chunk payloads are spatially ordered).
+			// 64 consecutive splats per meshlet, as SplatPak does (chunk payloads are spatially ordered).
 			for (uint32_t Start = 0; Start < Lod->SplatCount; Start += kSplatsPerMeshlet)
 			{
 				const uint32_t Count = std::min(kSplatsPerMeshlet, Lod->SplatCount - Start);

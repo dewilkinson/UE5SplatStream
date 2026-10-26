@@ -101,7 +101,7 @@ Emissive Intensity (D18).
 
 ## Open questions
 
-- **Codec toolset** (journal, 2026-10-23): splatlab's prebuilt codec is built with MSVC 14.51, newer
+- **Codec toolset** (journal, 2026-10-23): splatpak's prebuilt codec is built with MSVC 14.51, newer
   than UE 5.8's supported 14.44 and 14.50, so the public codec route doesn't link yet. Fix: publish
   the prebuilt library built with the oldest supported toolset (14.44).
 

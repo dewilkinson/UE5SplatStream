@@ -1,7 +1,7 @@
 # Stages the GSTx codec static library and headers for the UE5Splats plugin.
 #
 # -CodecRepo points at a checkout that contains libs/gstx:
-#   - the public mirror (https://github.com/dewilkinson/splatlab, cloned with Git LFS): its
+#   - the public mirror (https://github.com/dewilkinson/splatpak, cloned with Git LFS): its
 #     prebuilt Release library is copied as is;
 #   - the private 3DGSStream repo: the library is built from source with CMake.
 # The staged files are gitignored and never committed here: the codec is not covered by this
@@ -12,7 +12,7 @@ param(
 )
 $ErrorActionPreference = "Stop"
 $src = Join-Path $CodecRepo "libs\gstx"
-if (-not (Test-Path "$src\CMakeLists.txt")) { throw "The GSTx codec library was not found at $src. Pass -CodecRepo <path to a splatlab or 3DGSStream checkout>." }
+if (-not (Test-Path "$src\CMakeLists.txt")) { throw "The GSTx codec library was not found at $src. Pass -CodecRepo <path to a splatpak or 3DGSStream checkout>." }
 
 $dest = Resolve-Path "$PSScriptRoot\..\Plugins\SplatPak\Source\ThirdParty\GSTx"
 New-Item -ItemType Directory -Force "$dest\include", "$dest\lib\Win64" | Out-Null
