@@ -39,3 +39,4 @@ $zip = Join-Path $fab "SplatPak-$version-UE$engine.zip"
 if (Test-Path $zip) { Remove-Item $zip -Force }
 Compress-Archive -Path $stage -DestinationPath $zip
 Write-Host "Staged $stage and $zip (not uploaded)."
+exit 0 # robocopy's "files copied" code (1) would otherwise leak out as this script's exit code

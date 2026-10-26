@@ -7,9 +7,11 @@
 #include "CoreMinimal.h"
 #include "Serialization/BulkData.h"
 #include "UObject/Object.h"
+#include <vector>
 #include "SplatAsset.generated.h"
 
-namespace SplatCore { struct FDecodedLevel; }
+namespace SplatCore { struct FDecodedLevel; struct FShadowMeshLevel; }
+class UStaticMesh;
 using FSplatLevelPtr = TSharedPtr<const SplatCore::FDecodedLevel, ESPMode::ThreadSafe>;
 
 UCLASS(BlueprintType, hidecategories = Object)
@@ -27,6 +29,9 @@ public:
 	FSplatLevelPtr GetDecodedLevel(int32 Level, FString* OutError = nullptr);
 
 	FBox GetModelBounds() const { return FBox(FVector(BoundsMin), FVector(BoundsMax)); }
+
+	// The package's shadow mesh levels (format v12), finest first; false when it has none. Used by the importer.
+	bool ReadShadowMeshLevels(std::vector<SplatCore::FShadowMeshLevel>& OutLevels, FString* OutError = nullptr);
 	int64 GetPackageBytes() const { return PackageData.GetBulkDataSize(); }
 
 	virtual void Serialize(FArchive& Ar) override;
@@ -57,6 +62,12 @@ public:
 
 	UPROPERTY(VisibleAnywhere, Category = "SplatPak")
 	FVector3f BoundsMax = FVector3f::ZeroVector;
+
+	// The static mesh built from the package's shadow mesh at import (<asset>_ShadowMesh, three LODs, in the default
+	// import frame: package metres to centimetres, Y-up to Z-up). Splat components place it hidden, for shadows, Lumen
+	// and collision. Null for a package without one (format 11 or older).
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SplatPak")
+	TObjectPtr<UStaticMesh> ShadowMesh;
 
 private:
 	FByteBulkData PackageData;

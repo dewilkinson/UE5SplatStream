@@ -246,6 +246,39 @@ namespace SplatCoreTests
 			Check(InMeshlets == L.SplatCount, "meshlets do not cover every splat");
 			Check(L.PointSpacing > 0.0f, "point spacing not measured");
 		}
+
+		// Shadow mesh (v12): present, three levels each at most half the previous, valid indices, inside the bounds
+		if (Info.Header.Version >= 12)
+		{
+			std::vector<FShadowMeshLevel> Mesh;
+			Check(HasShadowMesh(Info), "a version 12 package without a shadow mesh section");
+			if (HasShadowMesh(Info))
+			{
+				const bool bRead = ReadShadowMesh(Data, Size, Info, Mesh, Error);
+				Check(bRead, "ReadShadowMesh failed: " + Error);
+				Check(Mesh.size() == 3, "the shadow mesh does not have three levels");
+				const FFileHeader& H = Info.Header;
+				const float Dx = H.BoundsMax.X - H.BoundsMin.X, Dy = H.BoundsMax.Y - H.BoundsMin.Y, Dz = H.BoundsMax.Z - H.BoundsMin.Z;
+				const float Margin = 0.05f * std::sqrt(Dx * Dx + Dy * Dy + Dz * Dz);
+				for (size_t l = 0; l < Mesh.size(); l++)
+				{
+					const FShadowMeshLevel& M = Mesh[l];
+					const size_t Triangles = M.Indices.size() / 3;
+					char Buf[160];
+					snprintf(Buf, sizeof(Buf), "shadow mesh level %zu has %zu triangles", l, Triangles);
+					Check(Triangles > 0 && M.Indices.size() % 3 == 0, Buf);
+					if (l > 0) Check(Triangles * 2 <= Mesh[l - 1].Indices.size() / 3 + 2, std::string(Buf) + ", more than half the previous level");
+					uint32_t Bad = 0, Outside = 0;
+					for (uint32_t i : M.Indices) Bad += i >= M.Positions.size() ? 1 : 0;
+					for (const FVec3& P : M.Positions)
+						Outside += (P.X < H.BoundsMin.X - Margin || P.X > H.BoundsMax.X + Margin || P.Y < H.BoundsMin.Y - Margin || P.Y > H.BoundsMax.Y + Margin ||
+							P.Z < H.BoundsMin.Z - Margin || P.Z > H.BoundsMax.Z + Margin) ? 1 : 0;
+					Check(Bad == 0, "shadow mesh indices past the vertex count");
+					Check(Outside == 0, "shadow mesh vertices outside the model bounds");
+					Check(M.Colours.size() == M.Positions.size(), "shadow mesh colours do not match the vertices");
+				}
+			}
+		}
 		return Check.Ok;
 	}
 }

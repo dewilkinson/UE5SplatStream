@@ -8,6 +8,8 @@
 #   -Emissive "1,4,16"     extra captures at these emissive intensities (quoted, comma-separated)
 #   -NoOccluder            don't place the occluding test cube
 #   -Warp                  render on Microsoft's software rasterizer, which supports mesh shaders
+#   -Shadow                also capture the shadow mesh: <sample>_shadow.png and _shadow_off.png (a floor under the model, Cast
+#                          Shadow on and off) and _distancefield.png and _distancefield_off.png (Affect Lumen on and off)
 # The first run compiles Unreal's shaders and can take a long time.
 param(
 	[string]$Samples = "C:\github\3DGSStream\assets",
@@ -16,7 +18,8 @@ param(
 	[string]$Resolution = "1280x720",
 	[string]$Emissive = "",
 	[switch]$NoOccluder,
-	[switch]$Warp
+	[switch]$Warp,
+	[switch]$Shadow
 )
 $ue = & "$PSScriptRoot\FindEngine.ps1"
 $root = Resolve-Path "$PSScriptRoot\.."
@@ -28,6 +31,7 @@ Remove-Item (Join-Path $root "Content\RenderCheck") -Recurse -Force -ErrorAction
 Remove-Item (Join-Path $root "Saved\RenderCheck") -Recurse -Force -ErrorAction SilentlyContinue
 
 $env:SPLATPAK_SAMPLES = $Samples
+$env:RENDERCHECK_SHADOW = if ($Shadow) { "1" } else { "0" }
 $env:RENDERCHECK_SAMPLES = ($Names -join ",")
 $env:RENDERCHECK_LEVEL = "$Level"
 $env:RENDERCHECK_RES = $Resolution

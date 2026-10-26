@@ -15,6 +15,7 @@ namespace SplatCoreTests
 	bool RunSyntheticPackageTests(std::vector<std::string>& OutFailures);
 
 	// Decodes the coarsest and finest levels of a real package and checks every position against
-	// the header bounds. Data is the whole package file.
+	// the header bounds; for a version 12 package, also its shadow mesh section (three levels, valid
+	// triangles, inside the bounds). Data is the whole package file.
 	bool RunRealPackageChecks(const unsigned char* Data, unsigned long long Size, std::vector<std::string>& OutFailures);
 }

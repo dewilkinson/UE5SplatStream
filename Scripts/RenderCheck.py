@@ -21,6 +21,9 @@ LEVEL = int(os.environ.get("RENDERCHECK_LEVEL", "-1"))
 WIDTH, HEIGHT = (int(v) for v in os.environ.get("RENDERCHECK_RES", "1280x720").lower().split("x"))
 EMISSIVE = [float(v) for v in os.environ.get("RENDERCHECK_EMISSIVE", "").split(",") if v]
 OCCLUDER = os.environ.get("RENDERCHECK_OCCLUDER", "1") != "0"
+# Shadow mesh checks (-Shadow): a floor under the model seen from above, captured with the shadow mesh casting and not,
+# and the mesh distance field view with Affect Lumen on and off
+SHADOW = os.environ.get("RENDERCHECK_SHADOW", "0") == "1"
 
 results = {"samples": {}, "errors": []}
 
@@ -68,6 +71,7 @@ def check_sample(name):
     splats = actors.spawn_actor_from_class(unreal.SplatActor, unreal.Vector(0, 0, 0))
     component = splats.get_editor_property("splat_component")
     component.set_editor_property("resident_level", LEVEL)
+    component_asset[0] = asset
     if os.environ.get("RENDERCHECK_NO_SPLATS") != "1":  # debugging: same scene, nothing for the plugin to draw
         component.set_splat_asset(asset)
     origin, extent = splats.get_actor_bounds(False)
@@ -106,6 +110,9 @@ def check_sample(name):
         shots["emissive%g" % intensity] = capture(cap, rt, "%s_emissive%g.png" % (name, intensity))
     component.set_emissive_intensity(1.0)
 
+    if SHADOW:
+        shots.update(check_shadow(name, actors, component, origin, extent, radius, cap, rt))
+
     splats.set_actor_hidden_in_game(True)
     component.set_visibility(False)
     shots["hidden"] = capture(cap, rt, "%s_hidden.png" % name)
@@ -116,6 +123,44 @@ def check_sample(name):
         "bounds_extent": [extent.x, extent.y, extent.z],
         "shots": shots,
     }
+
+
+def check_shadow(name, actors, component, origin, extent, radius, cap, rt):
+    shots = {}
+    mesh = component.get_shadow_mesh_component()
+    log("%s shadow mesh component: %s" % (name, "present" if mesh else "none"))
+    floor = actors.spawn_actor_from_class(unreal.StaticMeshActor, unreal.Vector(origin.x, origin.y, origin.z - extent.z - 1.0))
+    floor.static_mesh_component.set_static_mesh(unreal.load_asset("/Engine/BasicShapes/Plane"))
+    floor.set_actor_scale3d(unreal.Vector(radius * 0.08, radius * 0.08, 1.0))
+    # From above and to the side, so the floor around the model fills the view
+    cam = unreal.Vector(origin.x - radius * 2.2, origin.y - radius * 1.2, origin.z + radius * 2.4)
+    cap.set_actor_location(cam, False, False)
+    cap.set_actor_rotation(unreal.MathLibrary.find_look_at_rotation(cam, unreal.Vector(origin.x, origin.y + radius * 0.6, origin.z - extent.z)), False)
+    for label, cast in (("shadow", True), ("shadow_off", False)):
+        component.set_editor_property("shadow_mesh_cast_shadow", cast)
+        component.set_splat_asset(None)
+        component.set_splat_asset(component_asset[0])
+        capture(cap, rt, "%s_%s_warmup.png" % (name, label))
+        shots[label] = capture(cap, rt, "%s_%s.png" % (name, label))
+    component.set_editor_property("shadow_mesh_cast_shadow", True)
+    # Mesh distance fields (Lumen), with Affect Lumen on and off
+    cc = cap.capture_component2d
+    cc.set_editor_property("show_flag_settings", [unreal.EngineShowFlagsSetting(show_flag_name="VisualizeMeshDistanceFields", enabled=True)])
+    component.set_visibility(False, False)  # Splats off, so only the (hidden) shadow mesh's field can show where the model is
+    for label, affect in (("distancefield", True), ("distancefield_off", False)):
+        component.set_editor_property("shadow_mesh_affect_lumen", affect)
+        component.set_splat_asset(None)
+        component.set_splat_asset(component_asset[0])
+        capture(cap, rt, "%s_%s_warmup.png" % (name, label))
+        shots[label] = capture(cap, rt, "%s_%s.png" % (name, label))
+    cc.set_editor_property("show_flag_settings", [])
+    component.set_visibility(True, False)
+    component.set_editor_property("shadow_mesh_affect_lumen", True)
+    floor.destroy_actor()
+    return shots
+
+
+component_asset = [None]
 
 
 def main():

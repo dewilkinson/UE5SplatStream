@@ -20,7 +20,7 @@ namespace SplatCore
 {
 	static constexpr uint32_t kMagic = 0x58545347;     // "GSTX": format version 10 and later (.gstx)
 	static constexpr uint32_t kMagicSFLW = 0x574C4653; // "SFLW": versions 1 to 9 (.sflw)
-	static constexpr uint32_t kMaxSupportedVersion = 10;
+	static constexpr uint32_t kMaxSupportedVersion = 12;
 	static constexpr uint32_t kMaxOcclusionMips = 4;
 	static constexpr uint32_t kSplatsPerMeshlet = 64; // SPLATS_PER_GROUP in the shaders
 
@@ -62,9 +62,14 @@ namespace SplatCore
 		float    SplatScaleLog2Max;
 		uint64_t SHManifestOffset;
 		uint32_t PayloadCodec; // v9+: the entropy stage of every payload (0 = run-length, 1 = Brotli); older files are 0
+		uint32_t PayloadTransforms; // v11+, in the former padding: bit 0 = record colour as YCoCg-R (ColourTransform.h); older files are 0
+		uint64_t ShadowMeshOffset;  // v12+: absolute offset of the shadow mesh section (ShadowMeshCodec.h); 0 = none
+		uint64_t ShadowMeshBytes;   // v12+: its size
 	};
-	static_assert(sizeof(FFileHeader) == 208, "FFileHeader must match SFLWFileHeader");
+	static_assert(sizeof(FFileHeader) == 224, "FFileHeader must match SFLWFileHeader");
+	static_assert(offsetof(FFileHeader, ShadowMeshOffset) == 208, "FFileHeader must match SFLWFileHeader");
 	static_assert(offsetof(FFileHeader, PayloadCodec) == 200, "FFileHeader must match SFLWFileHeader");
+	static_assert(offsetof(FFileHeader, PayloadTransforms) == 204, "FFileHeader must match SFLWFileHeader");
 	static_assert(offsetof(FFileHeader, ManifestOffset) == 88, "FFileHeader must match SFLWFileHeader");
 	static_assert(offsetof(FFileHeader, DetailGridOffset) == 160, "FFileHeader must match SFLWFileHeader");
 	static_assert(offsetof(FFileHeader, RecordFormat) == 168, "FFileHeader must match SFLWFileHeader");
@@ -151,4 +156,17 @@ namespace SplatCore
 
 	// Octahedral normal as written by PackNormalOct16 (two signed bytes).
 	SPLATPAKRENDERING_API FVec3 DecodeOct16(uint16_t Packed);
+
+	// The package's shadow mesh (format v12, ShadowMeshCodec.h): levels finest first, each positions (model space),
+	// per-vertex colours (0xAABBGGRR) and a counter-clockwise triangle list. False with no error for a package without
+	// one (HasShadowMesh), false with an error for a section that does not decode.
+	struct FShadowMeshLevel
+	{
+		std::vector<FVec3> Positions;
+		std::vector<uint32_t> Colours;
+		std::vector<uint32_t> Indices;
+	};
+	inline bool HasShadowMesh(const FPackageInfo& Info) { return Info.Header.Version >= 12 && Info.Header.ShadowMeshOffset != 0; }
+	SPLATPAKRENDERING_API bool ReadShadowMesh(const uint8_t* Data, uint64_t Size, const FPackageInfo& Info,
+		std::vector<FShadowMeshLevel>& OutLevels, std::string& OutError);
 }

@@ -7,7 +7,7 @@ public class SplatPak : ModuleRules
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 
-		PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine" });
+		PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine", "PhysicsCore" });
 		PrivateDependencyModuleNames.AddRange(new string[] { "RenderCore", "RHI", "SplatPakRendering" });
 	}
 }

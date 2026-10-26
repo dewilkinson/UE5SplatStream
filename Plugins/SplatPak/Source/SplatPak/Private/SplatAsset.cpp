@@ -74,6 +74,20 @@ FSplatLevelPtr USplatAsset::GetDecodedLevel(int32 Level, FString* OutError)
 	return Decoded;
 }
 
+bool USplatAsset::ReadShadowMeshLevels(std::vector<SplatCore::FShadowMeshLevel>& OutLevels, FString* OutError)
+{
+	OutLevels.clear();
+	const int64 Size = PackageData.GetBulkDataSize();
+	if (Size == 0) return false;
+	const uint8* Data = static_cast<const uint8*>(PackageData.LockReadOnly());
+	SplatCore::FPackageInfo Info;
+	std::string Error;
+	bool bOk = SplatCore::ReadPackageInfo(Data, Size, Info, Error) && SplatCore::HasShadowMesh(Info) && SplatCore::ReadShadowMesh(Data, Size, Info, OutLevels, Error);
+	PackageData.Unlock();
+	if (!bOk && OutError) *OutError = UTF8_TO_TCHAR(Error.c_str());
+	return bOk;
+}
+
 void USplatAsset::Serialize(FArchive& Ar)
 {
 	Super::Serialize(Ar);

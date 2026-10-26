@@ -6,7 +6,7 @@ design record in [docs/](../../docs/README.md): decisions, plan and journal.
 
 ## Status: step 1 (opaque discs, one resident level)
 
-- Import a `.gstx` by dragging it into the Content Browser (format v4 to v10; older `.sflw` packages too).
+- Import a `.gstx` by dragging it into the Content Browser (format v4 to v12; older `.sflw` packages too).
 - Place a **Splat Actor**, or add a **Splat Component** to any actor, and assign the asset.
 - One level stays resident (`Resident Level`, -1 = coarsest). It's decoded once and shared by
   every component that shows it.
@@ -17,6 +17,12 @@ design record in [docs/](../../docs/README.md): decisions, plan and journal.
   Shader Tier 1 (or `r.SplatPak.MeshShaders 0`) uses the instanced vertex-shader fallback.
 - The colour is SplatLab's own: its fixed two-sided key light on 8-byte point records and unlit DC colour
   on splat records, converted to linear and pre-exposed. Unreal's lights don't affect it yet.
+- **Shadows, Lumen and collision from the shadow mesh** (format v12): importing a package that carries one also creates
+  `<name>_ShadowMesh`, a static mesh with three LODs following the model's visible surface (distance field on,
+  complex-as-simple collision, no Nanite). Each Splat Component places it hidden: it casts the model's shadow from
+  every light type (virtual shadow maps included), feeds Lumen through its distance field and blocks traces. The
+  component's **Shadow Mesh** settings switch each of the three off. A package without a mesh imports as before, casts
+  no shadow, and the import log suggests a rebake.
 
 ## Layout
 
@@ -84,7 +90,9 @@ Still to confirm at runtime: that `SplatPakRendering` loading at `PostConfigInit
   GBuffer layout (Substrate or legacy), so it's a separate step, done against the installed engine.
 - **Translucency:** discs drawn after the translucency pass overwrite translucent surfaces in
   front of them. Moving the opaque discs into the GBuffer pass fixes this as well.
-- **No splat shadow casting** (deferred on purpose; needs a depth pass per light).
+- **No per-splat shadow casting** (the shadow mesh stands in; true splat shadows need a depth pass per light). The splats
+  do not receive shadows yet either; when they do, a depth bias will keep the shadow mesh, which lies on the visible
+  surface, from shadowing its own splats.
 - **No streaming yet:** a whole level is decoded synchronously when the proxy is created (step 4).
 - **No normal-cone culling, dithered cross-fades, spherical harmonics or sorted Gaussians yet**
   (steps 2 to 4).

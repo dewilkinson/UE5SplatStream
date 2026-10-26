@@ -5,6 +5,9 @@
 #include "SplatAsset.h"
 #include "SplatSceneProxy.h"
 #include "RenderingThread.h"
+#include "Components/StaticMeshComponent.h"
+#include "Engine/StaticMesh.h"
+#include "Engine/CollisionProfile.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogSplatPak, Log, All);
 
@@ -22,7 +25,56 @@ void USplatComponent::SetSplatAsset(USplatAsset* NewAsset)
 		SplatAsset = NewAsset;
 		UpdateBounds();
 		MarkRenderStateDirty();
+		UpdateShadowMeshComponent();
 	}
+}
+
+void USplatComponent::OnRegister()
+{
+	Super::OnRegister();
+	UpdateShadowMeshComponent();
+}
+
+void USplatComponent::OnUnregister()
+{
+	if (ShadowMeshComponent)
+	{
+		ShadowMeshComponent->DestroyComponent();
+		ShadowMeshComponent = nullptr;
+	}
+	Super::OnUnregister();
+}
+
+// The shadow mesh as a hidden child: never drawn, but casting shadows (bCastHiddenShadow), feeding Lumen while hidden
+// and blocking traces, each as the three Shadow Mesh settings ask. The mesh is built in the default import frame, so the
+// child is scaled by any change to UnitsToCentimeters; a component that turns off the Y-up conversion gets none.
+void USplatComponent::UpdateShadowMeshComponent()
+{
+	UStaticMesh* Mesh = SplatAsset ? SplatAsset->ShadowMesh.Get() : nullptr;
+	const bool bWanted = Mesh && IsRegistered() && GetWorld() && bConvertYUpToZUp && (bShadowMeshCastShadow || bShadowMeshAffectLumen || bShadowMeshCollision);
+	if (!bWanted)
+	{
+		if (ShadowMeshComponent) { ShadowMeshComponent->DestroyComponent(); ShadowMeshComponent = nullptr; }
+		return;
+	}
+	if (!ShadowMeshComponent)
+	{
+		ShadowMeshComponent = NewObject<UStaticMeshComponent>(GetOwner() ? (UObject*)GetOwner() : (UObject*)this, NAME_None, RF_Transient | RF_TextExportTransient | RF_DuplicateTransient);
+		ShadowMeshComponent->SetupAttachment(this);
+		ShadowMeshComponent->bIsEditorOnly = false;
+		ShadowMeshComponent->RegisterComponent();
+	}
+	ShadowMeshComponent->SetStaticMesh(Mesh);
+	ShadowMeshComponent->SetRelativeTransform(FTransform(FQuat::Identity, FVector::ZeroVector, FVector(UnitsToCentimeters / 100.0f)));
+	ShadowMeshComponent->SetVisibility(false);
+	ShadowMeshComponent->SetHiddenInGame(true);
+	ShadowMeshComponent->SetCastShadow(bShadowMeshCastShadow);
+	ShadowMeshComponent->bCastHiddenShadow = bShadowMeshCastShadow;
+	ShadowMeshComponent->bAffectDistanceFieldLighting = bShadowMeshAffectLumen;
+	ShadowMeshComponent->bAffectDynamicIndirectLighting = bShadowMeshAffectLumen;
+	ShadowMeshComponent->bAffectIndirectLightingWhileHidden = bShadowMeshAffectLumen;
+	ShadowMeshComponent->SetCollisionProfileName(bShadowMeshCollision ? UCollisionProfile::BlockAll_ProfileName : UCollisionProfile::NoCollision_ProfileName);
+	ShadowMeshComponent->MarkRenderStateDirty();
 }
 
 FMatrix USplatComponent::GetModelToLocal() const
@@ -92,5 +144,6 @@ void USplatComponent::PostEditChangeProperty(FPropertyChangedEvent& PropertyChan
 	}
 	UpdateBounds();
 	MarkRenderStateDirty();
+	UpdateShadowMeshComponent();
 }
 #endif

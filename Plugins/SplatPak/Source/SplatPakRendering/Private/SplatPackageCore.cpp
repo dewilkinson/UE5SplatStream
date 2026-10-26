@@ -7,6 +7,8 @@
 
 #include "ByteShuffle.h"
 #include "PayloadDecode.h"
+#include "ColourTransform.h"
+#include "ShadowMeshCodec.h"
 
 #include <algorithm>
 #include <cfloat>
@@ -30,6 +32,7 @@ namespace SplatCore
 			if (Version < 7) return offsetof(FFileHeader, DetailGridDims);
 			if (Version < 8) return offsetof(FFileHeader, RecordFormat);
 			if (Version < 9) return offsetof(FFileHeader, PayloadCodec);
+			if (Version < 12) return offsetof(FFileHeader, ShadowMeshOffset);
 			return sizeof(FFileHeader);
 		}
 
@@ -129,6 +132,13 @@ namespace SplatCore
 		Out.RecordBytes = (Out.Format == ERecordFormat::Splat20) ? 20u : 8u;
 		if (H.Version >= 8 && H.SplatRecordBytes != Out.RecordBytes) { OutError = "The declared record size does not match the splat format."; return false; }
 		if (H.PayloadCodec > 1) { OutError = Format("Unknown payload codec %llu; the package was written by a newer SplatLab.", H.PayloadCodec); return false; }
+		if (H.Version < 11) H.PayloadTransforms = 0; // Padding before version 11, always written as 0
+		if (H.ShadowMeshOffset != 0 && (H.ShadowMeshOffset < sizeof(FFileHeader) || H.ShadowMeshBytes == 0 || H.ShadowMeshOffset + H.ShadowMeshBytes > Size))
+		{
+			OutError = "The shadow mesh section lies outside the file; the package is truncated or corrupt.";
+			return false;
+		}
+		if (H.PayloadTransforms & ~(uint32_t)Splat::PAYLOAD_TRANSFORMS_KNOWN) { OutError = Format("Unknown payload transforms 0x%llX; the package was written by a newer SplatLab.", H.PayloadTransforms); return false; }
 		if (Out.Format == ERecordFormat::Splat20 && !(H.SplatScaleLog2Max > H.SplatScaleLog2Min)) { OutError = "The splat scale range is empty or inverted; the package is corrupt."; return false; }
 
 		uint64_t Cursor = H.ManifestOffset;
@@ -204,6 +214,10 @@ namespace SplatCore
 			}
 			uint8_t* Dst = Out.Records.data() + (size_t)Offset * Info.RecordBytes;
 			Splat::ByteShuffle::Unshuffle(Shuffled.data(), Dst, Lod->SplatCount, Info.RecordBytes);
+			if (Info.Format == ERecordFormat::Splat20 && (Info.Header.PayloadTransforms & Splat::PAYLOAD_TRANSFORM_RECORD_YCOCG))
+			{
+				Splat::ColourTransform::UndoRecords(Dst, Lod->SplatCount, Info.RecordBytes); // Colour back to RGB (v11)
+			}
 
 			// 64 consecutive splats per meshlet, as SplatLab does (chunk payloads are spatially ordered).
 			for (uint32_t Start = 0; Start < Lod->SplatCount; Start += kSplatsPerMeshlet)
@@ -272,5 +286,25 @@ namespace SplatCore
 		}
 		const float Len = std::sqrt(V.X * V.X + V.Y * V.Y + V.Z * V.Z);
 		return (Len > 1e-6f) ? FVec3{ V.X / Len, V.Y / Len, V.Z / Len } : FVec3{ 0.0f, 0.0f, 1.0f };
+	}
+
+	bool ReadShadowMesh(const uint8_t* Data, uint64_t Size, const FPackageInfo& Info, std::vector<FShadowMeshLevel>& OutLevels, std::string& OutError)
+	{
+		OutLevels.clear();
+		if (!HasShadowMesh(Info)) return false;
+		const FFileHeader& H = Info.Header;
+		if (H.ShadowMeshOffset + H.ShadowMeshBytes > Size) { OutError = "The shadow mesh section lies outside the file."; return false; }
+		Splat::ShadowMesh Mesh;
+		if (!Splat::ShadowMeshCodec::Decode(Data + H.ShadowMeshOffset, (size_t)H.ShadowMeshBytes, Mesh, OutError)) return false;
+		for (const Splat::ShadowMeshLevel& L : Mesh.levels)
+		{
+			FShadowMeshLevel Level;
+			Level.Positions.reserve(L.positions.size());
+			for (const Splat::ShadowMeshVec3& P : L.positions) Level.Positions.push_back({ P.x, P.y, P.z });
+			Level.Colours = L.colours;
+			Level.Indices = L.indices;
+			OutLevels.push_back(std::move(Level));
+		}
+		return !OutLevels.empty();
 	}
 }

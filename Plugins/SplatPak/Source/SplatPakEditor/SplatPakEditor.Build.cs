@@ -7,6 +7,7 @@ public class SplatPakEditor : ModuleRules
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 
-		PrivateDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine", "UnrealEd", "SplatPak" });
+		PrivateDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine", "UnrealEd", "SplatPak", "SplatPakRendering",
+			"MeshDescription", "StaticMeshDescription", "AssetRegistry", "PhysicsCore" });
 	}
 }
