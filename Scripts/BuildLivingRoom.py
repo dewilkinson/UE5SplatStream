@@ -12,7 +12,7 @@ import unreal
 PROJECT_DIR = unreal.Paths.convert_relative_path_to_full(unreal.Paths.project_dir())
 MODELS_DIR = os.environ.get("ROOM_ASSETS_DIR", os.path.join(PROJECT_DIR, "ThirdPartyAssets", "polyhaven"))
 OUT_DIR = os.path.join(PROJECT_DIR, "Saved", "RenderCheck")
-SAMPLES_DIR = os.environ.get("SURFELS_SAMPLES", "C:/github/3DGSStream/assets")
+SAMPLES_DIR = os.environ.get("SPLATPAK_SAMPLES", "C:/github/3DGSStream/assets")
 SPLAT = os.environ.get("ROOM_SPLAT", "dwarves")
 SPLAT_HEIGHT_CM = float(os.environ.get("ROOM_SPLAT_HEIGHT", "35"))
 SPLAT_EMISSIVE = float(os.environ.get("ROOM_SPLAT_EMISSIVE", "1"))
@@ -250,11 +250,11 @@ def place_splat(name, on_actor, height_cm, level, emissive, offset=(0.0, 0.0)):
         unreal.AssetToolsHelpers.get_asset_tools().import_asset_tasks([task])
     base_origin, _ = on_actor.get_actor_bounds(False)
     target = unreal.Vector(base_origin.x + offset[0], base_origin.y + offset[1], top_of(on_actor))
-    splat = actors.spawn_actor_from_class(unreal.SurfelActor, unreal.Vector(target.x, target.y, 0))
+    splat = actors.spawn_actor_from_class(unreal.SplatActor, unreal.Vector(target.x, target.y, 0))
     splat.set_actor_label("Splat_" + name)
-    component = splat.get_editor_property("surfel_component")
+    component = splat.get_editor_property("splat_component")
     component.set_editor_property("resident_level", level)
-    component.set_surfel_asset(unreal.load_asset("/Game/Demo/" + name))
+    component.set_splat_asset(unreal.load_asset("/Game/Demo/" + name))
     component.set_emissive_intensity(emissive)
     _, extent = splat.get_actor_bounds(False)
     splat.set_actor_scale3d(unreal.Vector(1, 1, 1) * (height_cm / (2.0 * extent.z)))
@@ -396,7 +396,7 @@ def main():
     lamp_light.point_light_component.set_editor_property("attenuation_radius", 450.0)
 
     # The splat scans, scaled to figurines: the main one on the coffee table, Cthulhu on the mantel
-    # (level 1, 1.66 M surfels, which suits small GPUs better than level 0's 3.3 M).
+    # (level 1, 1.66 M splats, which suits small GPUs better than level 0's 3.3 M).
     table = placed["modern_coffee_table_01"]
     t_origin, _ = table.get_actor_bounds(False)
     place_splat(SPLAT, table, SPLAT_HEIGHT_CM, 0, SPLAT_EMISSIVE)

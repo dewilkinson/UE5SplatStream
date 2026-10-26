@@ -1,4 +1,4 @@
-# Surfels UE plugin: plan and status
+# Splats UE plugin: plan and status
 
 The build order and where each step stands. Decisions referenced as D*n* are in
 [decisions.md](decisions.md); dated progress and verification are in [journal.md](journal.md).
@@ -12,7 +12,7 @@ been built against Unreal), *Done* (built, tested, and seen working in the engin
 |---|---|
 | Visual Studio 2022 17.14 with the C++ game workloads, MSVC 14.44, Windows SDKs 10.0.22621 / 26100 | Done |
 | Plugin sandbox project (`PluginSandbox`) with build, test and package scripts | Done |
-| surfels repo cloned with LFS assets and the Cauldron submodule (`C:\github\surfels`) | Done |
+| splats repo cloned with LFS assets and the Cauldron submodule (`C:\github\splats`) | Done |
 | bluesec-codec builds and stages into the plugin (D7) | Done |
 | Unreal Engine 5.8.4 installed from the Epic Games Launcher | Done |
 | First build of the plugin against the installed engine | Done: builds without warnings; 5/5 automation tests pass |
@@ -23,11 +23,11 @@ been built against Unreal), *Done* (built, tested, and seen working in the engin
 
 **Status:** Renders on UE 5.8.4: both record formats, depth occlusion against scene meshes, fallback path on hardware, mesh path verified on WARP.
 
-- `.sflw` import into a `USurfelAsset` (D8); `USurfelComponent` / `ASurfelActor`; scene proxy.
-- One level resident (coarsest by default), split into 64-surfel meshlets.
+- `.sflw` import into a `USplatAsset` (D8); `USplatComponent` / `ASplatActor`; scene proxy.
+- One level resident (coarsest by default), split into 64-splat meshlets.
 - Opaque discs after lighting, depth-tested and depth-writing (D10, interim).
 - Mesh-shader path by default with the vertex fallback (D5); amplification-shader frustum culling.
-- Both record formats: 8-byte surfels and 20-byte splat records (drawn as discs, DC colour).
+- Both record formats: 8-byte point records and 20-byte splat records (drawn as discs, DC colour).
 - Tests: synthetic package round-trips and corruption checks; all bundled scans decode in bounds.
 
 **Remaining:** time the mesh path on a GPU with Mesh Shader Tier 1. Colours are emissive with a per-component
@@ -61,7 +61,7 @@ Emissive Intensity (D18).
   their level pyramid, and point to their meshlets (D12).
 - Compute meshlet normal cones at load time; enable normal-cone backface culling.
 - HZB occlusion culling of meshlets in the amplification shader (D13).
-- GPU-built indirect arguments (`CullSurfelsCS`, `BuildIndirectArgsCS`).
+- GPU-built indirect arguments (`CullSplatsCS`, `BuildIndirectArgsCS`).
 
 ### Step 3: Gaussian splat mode
 
@@ -80,7 +80,7 @@ Emissive Intensity (D18).
 - Screen-space-error traversal over the chunk LOD pyramid; dithered (8x8 Bayer) cross-fades.
 - Async chunk reads from bulk data into a GPU ring buffer (D8); the codec's streaming order
   (bounding octahedron, detail grid).
-- Quality controls through `r.Surfels.*` and scalability (D16, proposed).
+- Quality controls through `r.Splats.*` and scalability (D16, proposed).
 
 ### Step 5: silhouette refinement, occlusion volume, polish
 
@@ -105,6 +105,6 @@ Emissive Intensity (D18).
   than UE 5.8's supported 14.44 and 14.50, so the public codec route doesn't link yet. Fix: publish
   the prebuilt library built with the oldest supported toolset (14.44).
 
-- **Oct16 normal decoding in surfels' shader** (D11): is `Surfels.hlsl` decoding normals
-  incorrectly? To be checked in the surfels repo.
+- **Oct16 normal decoding in splats' shader** (D11): is `Splat.hlsl` decoding normals
+  incorrectly? To be checked in the splats repo.
 - **D16** (scalability integration) awaits the user's decision.

@@ -1,6 +1,6 @@
 # Project docs
 
-The design record for the Surfels Unreal plugin, kept up to date as work happens so reports can
+The design record for the Splats Unreal plugin, kept up to date as work happens so reports can
 be written from it.
 
 | File | What it holds | How it changes |

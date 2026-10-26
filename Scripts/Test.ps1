@@ -1,6 +1,6 @@
 # Runs the plugins' automation tests headless and writes a report to Saved\TestReport.
-# -Filter takes Unreal's syntax: test name prefixes joined with '+', e.g. "Surfels.Package".
-param([string]$Filter = "Surfels")
+# -Filter takes Unreal's syntax: test name prefixes joined with '+', e.g. "SplatPak.Package".
+param([string]$Filter = "SplatPak")
 $ue = & "$PSScriptRoot\FindEngine.ps1"
 $proj = Resolve-Path "$PSScriptRoot\..\PluginSandbox.uproject"
 $report = Join-Path (Split-Path $proj) "Saved\TestReport"

@@ -13,7 +13,7 @@ import unreal
 
 PROJECT_DIR = unreal.Paths.convert_relative_path_to_full(unreal.Paths.project_dir())
 OUT_DIR = os.path.join(PROJECT_DIR, "Saved", "RenderCheck")
-SAMPLES_DIR = os.environ.get("SURFELS_SAMPLES", "C:/github/3DGSStream/assets")
+SAMPLES_DIR = os.environ.get("SPLATPAK_SAMPLES", "C:/github/3DGSStream/assets")
 # Options (set by RenderCheck.ps1): which samples, which LOD level (-1 = coarsest), capture size,
 # extra captures at these emissive intensities, and whether to place the occluding cube.
 SAMPLES = [s for s in os.environ.get("RENDERCHECK_SAMPLES", "dwarves,venus").split(",") if s]
@@ -65,12 +65,12 @@ def check_sample(name):
     sun = actors.spawn_actor_from_class(unreal.DirectionalLight, unreal.Vector(0, 0, 500), unreal.Rotator(pitch=-40, yaw=-30))
     actors.spawn_actor_from_class(unreal.SkyLight, unreal.Vector(0, 0, 600))
 
-    surfels = actors.spawn_actor_from_class(unreal.SurfelActor, unreal.Vector(0, 0, 0))
-    component = surfels.get_editor_property("surfel_component")
+    splats = actors.spawn_actor_from_class(unreal.SplatActor, unreal.Vector(0, 0, 0))
+    component = splats.get_editor_property("splat_component")
     component.set_editor_property("resident_level", LEVEL)
-    if os.environ.get("RENDERCHECK_NO_SURFELS") != "1":  # debugging: same scene, nothing for the plugin to draw
-        component.set_surfel_asset(asset)
-    origin, extent = surfels.get_actor_bounds(False)
+    if os.environ.get("RENDERCHECK_NO_SPLATS") != "1":  # debugging: same scene, nothing for the plugin to draw
+        component.set_splat_asset(asset)
+    origin, extent = splats.get_actor_bounds(False)
     radius = max(extent.x, extent.y, extent.z, 1.0)
     log("%s bounds: origin %s extent %s" % (name, origin, extent))
 
@@ -93,12 +93,12 @@ def check_sample(name):
         cube.set_actor_scale3d(unreal.Vector(0.2, radius * 0.006, radius * 0.02))
 
     shots = {}
-    for label, cvar in (("mesh", "r.Surfels.MeshShaders 1"), ("fallback", "r.Surfels.MeshShaders 0")):
+    for label, cvar in (("mesh", "r.SplatPak.MeshShaders 1"), ("fallback", "r.SplatPak.MeshShaders 0")):
         unreal.SystemLibrary.execute_console_command(world(), cvar)
         # Two captures: the first can still be uploading buffers or compiling PSOs.
         capture(cap, rt, "%s_%s_warmup.png" % (name, label))
         shots[label] = capture(cap, rt, "%s_%s.png" % (name, label))
-    unreal.SystemLibrary.execute_console_command(world(), "r.Surfels.MeshShaders 1")
+    unreal.SystemLibrary.execute_console_command(world(), "r.SplatPak.MeshShaders 1")
 
     for intensity in EMISSIVE:
         component.set_emissive_intensity(intensity)
@@ -106,7 +106,7 @@ def check_sample(name):
         shots["emissive%g" % intensity] = capture(cap, rt, "%s_emissive%g.png" % (name, intensity))
     component.set_emissive_intensity(1.0)
 
-    surfels.set_actor_hidden_in_game(True)
+    splats.set_actor_hidden_in_game(True)
     component.set_visibility(False)
     shots["hidden"] = capture(cap, rt, "%s_hidden.png" % name)
 

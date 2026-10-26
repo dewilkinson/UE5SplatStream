@@ -1,7 +1,7 @@
 # Renders the sample scans in the editor (D3D12, off-screen) and writes captures to Saved\RenderCheck:
 # <sample>_mesh.png, <sample>_fallback.png and <sample>_hidden.png (baseline), plus
 # <sample>_emissive<N>.png for each -Emissive intensity. The editor log says which path actually
-# drew ("LogSurfelsRendering: Drawing surfels with ...").
+# drew ("LogSplatPakRendering: Drawing splats with ...").
 #   -Names dwarves,venus   samples to render (folders under -Samples)
 #   -Level -1              LOD level kept resident: -1 = coarsest, 0 = finest
 #   -Resolution 1280x720   capture size
@@ -27,7 +27,7 @@ $script = Resolve-Path "$PSScriptRoot\RenderCheck.py"
 Remove-Item (Join-Path $root "Content\RenderCheck") -Recurse -Force -ErrorAction SilentlyContinue
 Remove-Item (Join-Path $root "Saved\RenderCheck") -Recurse -Force -ErrorAction SilentlyContinue
 
-$env:SURFELS_SAMPLES = $Samples
+$env:SPLATPAK_SAMPLES = $Samples
 $env:RENDERCHECK_SAMPLES = ($Names -join ",")
 $env:RENDERCHECK_LEVEL = "$Level"
 $env:RENDERCHECK_RES = $Resolution

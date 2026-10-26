@@ -1,0 +1,17 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "0.1.0",
+	"FriendlyName": "SplatPak",
+	"Description": "Streams and renders compressed 3D Gaussian splat scans (.gstx packages) inside Unreal's renderer.",
+	"Category": "Rendering",
+	"CreatedBy": "Dave Wilkinson / Blueshell LLC",
+	"CanContainContent": false,
+	"IsBetaVersion": true,
+	"Installed": false,
+	"Modules": [
+		{ "Name": "SplatPakRendering", "Type": "Runtime", "LoadingPhase": "PostConfigInit", "PlatformAllowList": [ "Win64" ] },
+		{ "Name": "SplatPak", "Type": "Runtime", "LoadingPhase": "Default", "PlatformAllowList": [ "Win64" ] },
+		{ "Name": "SplatPakEditor", "Type": "Editor", "LoadingPhase": "Default", "PlatformAllowList": [ "Win64" ] }
+	]
+}

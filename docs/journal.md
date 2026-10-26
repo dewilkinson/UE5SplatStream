@@ -1,4 +1,4 @@
-# Surfels UE plugin: journal
+# Splats UE plugin: journal
 
 Dated notes on what was done, what was found and how it was verified. Newest last. Decisions are
 in [decisions.md](decisions.md), the build order and status in [plan.md](plan.md).
@@ -13,7 +13,7 @@ in [decisions.md](decisions.md), the build order and status in [plan.md](plan.md
 - Created the `PluginSandbox` host project with a starter plugin (`MyPlugin`) and an automation
   test, plus `Scripts/Build.ps1`, `Test.ps1` and `Package.ps1`, which find the newest installed
   UE5 through the Epic launcher's install list.
-- Cloned `dewilkinson/surfels` to `C:\github\surfels`: all 14 LFS objects downloaded in full, and
+- Cloned `dewilkinson/splats` to `C:\github\splats`: all 14 LFS objects downloaded in full, and
   the `libs/cauldron` submodule checked out from the user's fork at its pinned commit.
 - Unreal Engine itself needs the user's Epic sign-in; the launcher was opened on the Unreal
   Engine page.
@@ -27,39 +27,39 @@ in [decisions.md](decisions.md), the build order and status in [plan.md](plan.md
   meshlet occlusion, one splat sort across all models, and World Partition for very large scans
   (D12 to D15).
 
-### Findings in the surfels source and data
+### Findings in the splats source and data
 
 - Chunk payloads are `ByteShuffle::DecompressShuffled` then `Unshuffle`; only those two codec
   calls are needed to decode a level.
-- Positions are quantized against the global bounds: 8-byte surfels with extents
+- Positions are quantized against the global bounds: 8-byte point records with extents
   `max - min + 1e-5` at 10 bits per axis, splat records with `max(1e-6, max - min)` at 16 bits.
-- Manifest chunks hold thousands to over a million surfels per level; surfels splits them into
-  meshlets of 64 consecutive surfels at load time, because its mesh shader draws at most 64 per
+- Manifest chunks hold thousands to over a million splats per level; splats splits them into
+  meshlets of 64 consecutive splats at load time, because its mesh shader draws at most 64 per
   group.
 - Disc size comes from each level's median nearest-neighbour spacing times a coverage of 1.2
   (Auto Splat Size).
-- Bundled samples: `venus` is v7 with 8-byte surfels; `strawberry`, `dwarves` and `cthulu` are v8
+- Bundled samples: `venus` is v7 with 8-byte point records; `strawberry`, `dwarves` and `cthulu` are v8
   with 20-byte splat records.
-- Possible normal-decoding mismatch in `Surfels.hlsl` (D11).
+- Possible normal-decoding mismatch in `Splat.hlsl` (D11).
 
 ### Step 1 written
 
 - Wrote the plugin: four modules (D6), the asset, component, actor and scene proxy, the disc
   pass with mesh-shader and vertex paths, the view extension, and the importer.
-- `Scripts/BuildCodec.ps1` builds the codec from the surfels repo; the staged files are
+- `Scripts/BuildCodec.ps1` builds the codec from the splats repo; the staged files are
   gitignored (D7).
 
 ### Verification (before the engine was installed)
 
-- The format core (`SurfelPackageCore`) and its tests compiled natively with MSVC `/W4 /WX`
+- The format core (`SplatPackageCore`) and its tests compiled natively with MSVC `/W4 /WX`
   against the real codec library. Results:
-  - `Surfels.Package.Synthetic`: pass. It covers surfel8 and splat20 packages built with the
+  - `Splats.Package.Synthetic`: pass. It covers point8 and splat20 packages built with the
     codec's own encoder, level selection, meshlet splitting, record round-trips, Oct16 axes, and
     rejection of bad magic, truncation, mismatched payload sizes and a future version.
-  - `Surfels.Package.Samples`: pass for all four bundled scans, at both the coarsest level and
+  - `Splats.Package.Samples`: pass for all four bundled scans, at both the coarsest level and
     level 0, with every decoded position inside the header bounds.
 
-    | Scan | Coarsest level: surfels / meshlets | Level 0: surfels / meshlets |
+    | Scan | Coarsest level: splats / meshlets | Level 0: splats / meshlets |
     |---|---|---|
     | venus | 138,309 / 2,170 | 4,426,059 / 69,164 |
     | strawberry | 93,679 / 1,485 | 1,499,098 / 23,446 |
@@ -76,7 +76,7 @@ in [decisions.md](decisions.md), the build order and status in [plan.md](plan.md
 
 - The user started installing **Unreal Engine 5.8** from the Epic Games Launcher, into
   `C:\Program Files\Epic Games\UE_5.8`. 5.8 is newer than the engine versions step 1 was written
-  against, so the Unreal API calls listed in `Plugins/Surfels/README.md` are the first things to
+  against, so the Unreal API calls listed in `Plugins/Splats/README.md` are the first things to
   check when it compiles.
 
 ### Engine installed; first build and tests on UE 5.8.4
@@ -84,7 +84,7 @@ in [decisions.md](decisions.md), the build order and status in [plan.md](plan.md
 - UE **5.8.4** (changelist 58902052) finished installing at `C:\Program Files\Epic Games\UE_5.8`.
   The project's engine association is now `5.8`.
 - Repository prepared for publishing as `dewilkinson/UE5Splats` (D17): the plugin was renamed
-  from `Surfels` to `UE5Splats` (so paths in earlier entries now read `Plugins/UE5Splats/...`),
+  from `Splats` to `UE5Splats` (so paths in earlier entries now read `Plugins/UE5Splats/...`),
   `MyPlugin` was removed, an Apache-2.0 `LICENSE` and a root README were added, and the two local
   commits were rewritten to the GitHub noreply identity before any push. `BuildCodec.ps1` now
   also accepts a splatlab clone and copies its prebuilt codec.
@@ -97,9 +97,9 @@ in [decisions.md](decisions.md), the build order and status in [plan.md](plan.md
   - The mesh-shader pipeline setup, `DispatchMeshShader` and the scene-proxy signature, flagged
     as the main risks, compiled as written.
 - **Second build:** succeeded with no compiler warnings (editor target, Win64 Development).
-- **Automation tests in the editor** (`Scripts/Test.ps1 -Filter Surfels`, headless, null RHI):
-  5 of 5 passed in 1.7 s: `Surfels.Package.Synthetic` and `Surfels.Package.Samples` for cthulu,
-  dwarves, strawberry and venus. All three plugin modules loaded, `SurfelsRendering` at
+- **Automation tests in the editor** (`Scripts/Test.ps1 -Filter Splats`, headless, null RHI):
+  5 of 5 passed in 1.7 s: `Splats.Package.Synthetic` and `Splats.Package.Samples` for cthulu,
+  dwarves, strawberry and venus. All three plugin modules loaded, `SplatPakRendering` at
   `PostConfigInit`, with no plugin warnings in the log.
 - **Not yet verified:** because the tests ran with the null RHI, Unreal hasn't compiled the
   plugin's shaders and nothing has been rendered. The importer and placing an actor haven't been
@@ -125,13 +125,13 @@ in [decisions.md](decisions.md), the build order and status in [plan.md](plan.md
 ### First render check (step 1 seen working)
 
 - Added `Scripts/RenderCheck.ps1` / `RenderCheck.py`: the editor runs off-screen on D3D12, imports
-  `dwarves` (splat records) and `venus` (8-byte surfels), places each in a lit level with a cube
+  `dwarves` (splat records) and `venus` (8-byte point records), places each in a lit level with a cube
   in front of part of the model, and captures it through a SceneCapture2D on the mesh-shader path,
   the vertex-shader fallback, and with the model hidden. `Scripts/CompareCaptures.ps1` measures the
-  differences. The plugin now logs which path draws (`LogSurfelsRendering`).
+  differences. The plugin now logs which path draws (`LogSplatPakRendering`).
 - **Hardware run** (AMD Radeon integrated graphics of the Ryzen 9 7950X3D, D3D12, SM6):
   - Both samples render. `dwarves` shows the gnomes upright, so the Y-up to Z-up conversion
-    works, in their colours, at the coarsest level (25,830 surfels).
+    works, in their colours, at the coarsest level (25,830 splats).
   - Depth occlusion works: the cube hides the part of the model behind it, and the cube region
     is unchanged against the baseline.
   - This GPU reports **Mesh Shader Tier 0** (feature level 12_1; confirmed by querying the D3D12
@@ -146,20 +146,20 @@ in [decisions.md](decisions.md), the build order and status in [plan.md](plan.md
   stored colours, although the decoded colours are right (`venus` mean RGB 0.43 / 0.38 / 0.32,
   `dwarves` 0.58 / 0.55 / 0.41). The plugin writes stored colours into scene colour as linear,
   pre-exposed values, the equivalent of a faint emissive surface, and Unreal's exposure for a
-  sunlit scene darkens them. 8-byte surfels also get surfels' fixed key light (x0.35 to 1).
+  sunlit scene darkens them. 8-byte point records also get splats' fixed key light (x0.35 to 1).
   How baked splat colours should relate to Unreal's exposure is an open design question.
 
 ### Full-detail render and the emissive slider (2026-10-24)
 
-- Added `EmissiveIntensity` to the Surfel component (D18) and options to the render check:
+- Added `EmissiveIntensity` to the Splat component (D18) and options to the render check:
   `-Names`, `-Level`, `-Resolution`, `-Emissive "1,2,4"` and `-NoOccluder`.
-- Rendered `dwarves` at level 0 (206,722 surfels) at 1920x1080 on the hardware GPU (fallback
+- Rendered `dwarves` at level 0 (206,722 splats) at 1920x1080 on the hardware GPU (fallback
   path), at emissive intensities 1, 2, 4, 8 and 16. At level 0 the discs form a near-continuous
   surface with fine detail (the stitching on the clothes, the painted dots on the skirt). Intensity
   2 looks closest to the stored colours.
 - **Editor exit crash isolated:** after captures at 1920x1080, and on WARP at any size, the editor
   exits with 0xC0000005 *after* its log has closed. No Unreal crash report or Windows error event
-  is written, and the captures are complete. It also happens with the surfel asset unassigned (the
+  is written, and the captures are complete. It also happens with the splat asset unassigned (the
   plugin draws nothing), so it isn't caused by the plugin. Hardware runs at 1280x720 exit cleanly.
   Not pursued further.
 
@@ -196,7 +196,7 @@ in [decisions.md](decisions.md), the build order and status in [plan.md](plan.md
   (0.8 to 1.2) so the interior keeps its contrast, a vignette.
 - **Lights:** a built brick fireplace (surround, mantel, hearth, emissive embers, a warm 25 cd light),
   a Nanite chandelier (Poly Haven) with a 35 cd light, and the oil lamp.
-- **Splats:** `dwarves` (level 0, 35 cm) on the coffee table; `cthulu` (level 1, 1.66 M surfels,
+- **Splats:** `dwarves` (level 0, 35 cm) on the coffee table; `cthulu` (level 1, 1.66 M splats,
   40 cm) on the mantel.
 - Seen in the editor viewport: Lumen bounce light, reflections and virtual shadow maps all work, and
   both scans sit correctly in the depth buffer among the Nanite meshes. They don't respond to the

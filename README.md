@@ -1,10 +1,10 @@
 # UE5Splats
 
-An Unreal Engine 5 plugin that renders surfel and Gaussian splat scans (`.sflw` packages) inside
+The home of **SplatPak**, an Unreal Engine 5 plugin that renders compressed 3D Gaussian splat scans (`.gstx` packages) inside
 Unreal's own renderer, so they sit in a level next to Nanite meshes and occlude them correctly.
 It's a port of the DirectX 12 renderer in [splatlab](https://github.com/dewilkinson/splatlab).
 
-> **Status: early development (step 1 of 5).** The `.sflw` loader and its tests pass; the Unreal
+> **Status: early development (step 1 of 5).** The `.gstx` loader and its tests pass; the Unreal
 > side is being brought up on UE 5.8 and hasn't been seen rendering yet. See
 > [docs/plan.md](docs/plan.md) for exactly what's verified and what's next.
 
@@ -12,7 +12,7 @@ It's a port of the DirectX 12 renderer in [splatlab](https://github.com/dewilkin
 
 | Path | Contents |
 |---|---|
-| [Plugins/UE5Splats/](Plugins/UE5Splats/) | The plugin: `.sflw` import, a placeable Surfel Actor, and the GPU passes (mesh shaders by default, vertex-shader fallback). See its [README](Plugins/UE5Splats/README.md). |
+| [Plugins/SplatPak/](Plugins/SplatPak/) | The plugin: `.gstx` import, a placeable Splat Actor, and the GPU passes (mesh shaders by default, vertex-shader fallback). See its [README](Plugins/SplatPak/README.md). |
 | `PluginSandbox.uproject`, `Source/`, `Config/` | A minimal host project for building and testing the plugin. |
 | [Scripts/](Scripts/) | `BuildCodec.ps1`, `Build.ps1`, `Test.ps1`, `Package.ps1`. |
 | [docs/](docs/) | The design record: the decision log, the plan with step status, and a dated journal. |
@@ -29,7 +29,7 @@ It's a port of the DirectX 12 renderer in [splatlab](https://github.com/dewilkin
 
 ## The codec
 
-`.sflw` packages are compressed by the **GSTx codec library**, which is **not part of this repository and
+`.gstx` packages are compressed by the **GSTx codec library**, which is **not part of this repository and
 not covered by its licence**. The plugin links it as a prebuilt static library:
 
 ```powershell
@@ -39,7 +39,7 @@ git clone https://github.com/dewilkinson/splatlab.git C:\github\splatlab
 ```
 
 This copies splatlab's prebuilt codec library and headers into
-`Plugins/UE5Splats/Source/ThirdParty/GSTx/`. That folder is gitignored. The prebuilt
+`Plugins/SplatPak/Source/ThirdParty/GSTx/`. That folder is gitignored. The prebuilt
 library is distributed under its own binary licence
 (`libs/gstx/prebuilt/LICENSE.txt` in splatlab).
 
@@ -57,11 +57,11 @@ prebuilt library to load the sample scans.
 
 ```powershell
 .\Scripts\Build.ps1                 # stages the codec if needed, then builds the editor target
-.\Scripts\Test.ps1 -Filter Surfels  # automation tests, headless
+.\Scripts\Test.ps1 -Filter SplatPak  # automation tests, headless
 ```
 
-Then open `PluginSandbox.uproject`, drag a `.sflw` (for example from splatlab's `assets/`) into
-the Content Browser, place a **Surfel Actor** and assign the imported asset.
+Then open `PluginSandbox.uproject`, drag a `.gstx` (for example from splatlab's `assets/`) into
+the Content Browser, place a **Splat Actor** and assign the imported asset.
 
 ## Licence
 

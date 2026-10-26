@@ -8,9 +8,9 @@ DerivedDataCache/
 Plugins/*/Binaries/
 Plugins/*/Intermediate/
 Packaged/
-Plugins/UE5Splats/Source/ThirdParty/GSTx/include/
-Plugins/UE5Splats/Source/ThirdParty/GSTx/lib/
-Plugins/UE5Splats/Source/ThirdParty/GSTx/Intermediate/
+Plugins/SplatPak/Source/ThirdParty/GSTx/include/
+Plugins/SplatPak/Source/ThirdParty/GSTx/lib/
+Plugins/SplatPak/Source/ThirdParty/GSTx/Intermediate/
 *.slnx
 Content/RenderCheck/
 ThirdPartyAssets/

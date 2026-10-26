@@ -8,14 +8,13 @@
 # repository's licence. Unreal links the release CRT (/MD) in every configuration, so only a
 # Release library is staged.
 param(
-	[Alias("SurfelsRepo")]
 	[string]$CodecRepo = "C:\github\3DGSStream"
 )
 $ErrorActionPreference = "Stop"
 $src = Join-Path $CodecRepo "libs\gstx"
 if (-not (Test-Path "$src\CMakeLists.txt")) { throw "The GSTx codec library was not found at $src. Pass -CodecRepo <path to a splatlab or 3DGSStream checkout>." }
 
-$dest = Resolve-Path "$PSScriptRoot\..\Plugins\UE5Splats\Source\ThirdParty\GSTx"
+$dest = Resolve-Path "$PSScriptRoot\..\Plugins\SplatPak\Source\ThirdParty\GSTx"
 New-Item -ItemType Directory -Force "$dest\include", "$dest\lib\Win64" | Out-Null
 
 $prebuilt = Join-Path $src "prebuilt\Release\gstx.lib"

@@ -20,7 +20,7 @@ if ($Map) {
 }
 else {
 	$script = (Resolve-Path "$PSScriptRoot\OpenDemo.py").Path -replace '\\', '/'
-	$env:SURFELS_SAMPLES = $Samples
+	$env:SPLATPAK_SAMPLES = $Samples
 	$env:DEMO_SAMPLE = $Sample
 	$env:DEMO_LEVEL = "$Level"
 	$env:DEMO_EMISSIVE = $Emissive
