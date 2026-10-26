@@ -19,7 +19,7 @@
 namespace SplatCore
 {
 	static constexpr uint32_t kMagic = 0x58545347;     // "GSTX" (.gstx)
-	static constexpr uint32_t kFormatVersion = 13;     // The only format version read; older packages are baked again
+	static constexpr uint32_t kFormatVersion = 14;     // The only format version read; older packages are baked again
 	static constexpr uint32_t kMaxOcclusionMips = 4;
 	static constexpr uint32_t kSplatsPerMeshlet = 64; // SPLATS_PER_GROUP in the shaders
 
