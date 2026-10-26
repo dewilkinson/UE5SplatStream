@@ -20,7 +20,7 @@ namespace SplatCore
 {
 	static constexpr uint32_t kMagic = 0x58545347;     // "GSTX": format version 10 and later (.gstx)
 	static constexpr uint32_t kMagicSFLW = 0x574C4653; // "SFLW": versions 1 to 9 (.sflw)
-	static constexpr uint32_t kMaxSupportedVersion = 12;
+	static constexpr uint32_t kMaxSupportedVersion = 13;
 	static constexpr uint32_t kMaxOcclusionMips = 4;
 	static constexpr uint32_t kSplatsPerMeshlet = 64; // SPLATS_PER_GROUP in the shaders
 
@@ -65,8 +65,11 @@ namespace SplatCore
 		uint32_t PayloadTransforms; // v11+, in the former padding: bit 0 = record colour as YCoCg-R (ColourTransform.h); older files are 0
 		uint64_t ShadowMeshOffset;  // v12+: absolute offset of the shadow mesh section (ShadowMeshCodec.h); 0 = none
 		uint64_t ShadowMeshBytes;   // v12+: its size
+		uint64_t OccluderMeshOffset; // v13+: the occlusion volume as a mesh (same encoding), in place of the voxel array; 0 = none
+		uint64_t OccluderMeshBytes;  // v13+: its size
 	};
-	static_assert(sizeof(FFileHeader) == 224, "FFileHeader must match SFLWFileHeader");
+	static_assert(sizeof(FFileHeader) == 240, "FFileHeader must match SFLWFileHeader");
+	static_assert(offsetof(FFileHeader, OccluderMeshOffset) == 224, "FFileHeader must match SFLWFileHeader");
 	static_assert(offsetof(FFileHeader, ShadowMeshOffset) == 208, "FFileHeader must match SFLWFileHeader");
 	static_assert(offsetof(FFileHeader, PayloadCodec) == 200, "FFileHeader must match SFLWFileHeader");
 	static_assert(offsetof(FFileHeader, PayloadTransforms) == 204, "FFileHeader must match SFLWFileHeader");

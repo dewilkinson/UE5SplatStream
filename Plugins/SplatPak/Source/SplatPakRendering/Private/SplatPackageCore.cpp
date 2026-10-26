@@ -33,6 +33,7 @@ namespace SplatCore
 			if (Version < 8) return offsetof(FFileHeader, RecordFormat);
 			if (Version < 9) return offsetof(FFileHeader, PayloadCodec);
 			if (Version < 12) return offsetof(FFileHeader, ShadowMeshOffset);
+			if (Version < 13) return offsetof(FFileHeader, OccluderMeshOffset);
 			return sizeof(FFileHeader);
 		}
 
@@ -133,9 +134,15 @@ namespace SplatCore
 		if (H.Version >= 8 && H.SplatRecordBytes != Out.RecordBytes) { OutError = "The declared record size does not match the splat format."; return false; }
 		if (H.PayloadCodec > 1) { OutError = Format("Unknown payload codec %llu; the package was written by a newer SplatLab.", H.PayloadCodec); return false; }
 		if (H.Version < 11) H.PayloadTransforms = 0; // Padding before version 11, always written as 0
-		if (H.ShadowMeshOffset != 0 && (H.ShadowMeshOffset < sizeof(FFileHeader) || H.ShadowMeshBytes == 0 || H.ShadowMeshOffset + H.ShadowMeshBytes > Size))
+		if (H.ShadowMeshOffset != 0 && (H.ShadowMeshOffset < HeaderBytesForVersion(H.Version) || H.ShadowMeshBytes == 0 || H.ShadowMeshOffset + H.ShadowMeshBytes > Size))
 		{
 			OutError = "The shadow mesh section lies outside the file; the package is truncated or corrupt.";
+			return false;
+		}
+		// The occluder mesh (v13) is not used here, as Unreal's own depth occludes the splats, but it is validated
+		if (H.OccluderMeshOffset != 0 && (H.OccluderMeshOffset < HeaderBytesForVersion(H.Version) || H.OccluderMeshBytes == 0 || H.OccluderMeshOffset + H.OccluderMeshBytes > Size))
+		{
+			OutError = "The occluder mesh section lies outside the file; the package is truncated or corrupt.";
 			return false;
 		}
 		if (H.PayloadTransforms & ~(uint32_t)Splat::PAYLOAD_TRANSFORMS_KNOWN) { OutError = Format("Unknown payload transforms 0x%llX; the package was written by a newer SplatLab.", H.PayloadTransforms); return false; }
