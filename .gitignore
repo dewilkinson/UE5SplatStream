@@ -19,3 +19,6 @@ Content/Demo/
 # Showcase content (Fab packs, demo scenes) belongs in the private UE5SplatsDemo project, never here.
 Content/
 
+
+# Fab staging lives in the private UE5SplatPakDemo project (Scripts/StageFab.ps1), never here.
+/Fab/
