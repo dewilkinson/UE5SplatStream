@@ -16,7 +16,7 @@ Content/RenderCheck/
 ThirdPartyAssets/
 Content/Demo/
 
-# Showcase content (Fab packs, demo scenes) belongs in the private UE5SplatsDemo project, never here.
+# Showcase content (Fab packs, demo scenes) belongs in the private UE5SplatPakDemo project, never here.
 Content/
 
 
