@@ -1,9 +1,9 @@
-// SplatPackageCore.cpp
-// See SplatPackageCore.h. Decoding mirrors StreamPackager::LoadPackage in the 3DGSStream repo: each chunk
+// SplatPakPackageCore.cpp
+// See SplatPakPackageCore.h. Decoding mirrors StreamPackager::LoadPackage in the 3DGSStream repo: each chunk
 // LOD payload goes through the codec library's PayloadDecode (run-length or Brotli, per the header), then is
 // unshuffled back to interleaved records.
 
-#include "SplatPackageCore.h"
+#include "SplatPakPackageCore.h"
 
 #include "ByteShuffle.h"
 #include "PayloadDecode.h"
@@ -123,7 +123,7 @@ namespace SplatCore
 			OutError = "The shadow mesh section lies outside the file; the package is truncated or corrupt.";
 			return false;
 		}
-		// The occluder mesh is not used here, as Unreal's own depth occludes the splats, but it is validated
+		// The occluder mesh: DecodeLevel reads it for occlusion culling
 		if (H.OccluderMeshOffset != 0 && (H.OccluderMeshOffset < sizeof(FFileHeader) || H.OccluderMeshBytes == 0 || H.OccluderMeshOffset + H.OccluderMeshBytes > Size))
 		{
 			OutError = "The occluder mesh section lies outside the file; the package is truncated or corrupt.";
@@ -158,7 +158,7 @@ namespace SplatCore
 	}
 
 	bool DecodeLevel(const uint8_t* Data, uint64_t Size, const FPackageInfo& Info, uint32_t RequestedLevel,
-		FDecodedLevel& Out, std::string& OutError)
+		FDecodedLevel& Out, std::string& OutError, bool bExactLevel)
 	{
 		Out = FDecodedLevel();
 		const FFileHeader& H = Info.Header;
@@ -180,7 +180,7 @@ namespace SplatCore
 			const FChunkLODHeader* Best = nullptr;
 			for (const FChunkLODHeader& Lod : Info.Chunks[c].Lods)
 			{
-				if (Lod.LodLevel <= RequestedLevel && (!Best || Lod.LodLevel > Best->LodLevel)) Best = &Lod;
+				if (bExactLevel ? Lod.LodLevel == RequestedLevel : (Lod.LodLevel <= RequestedLevel && (!Best || Lod.LodLevel > Best->LodLevel))) Best = &Lod;
 			}
 			Picked[c] = Best;
 			if (Best) TotalSplats += Best->SplatCount;
@@ -239,7 +239,37 @@ namespace SplatCore
 			Offset += Lod->SplatCount;
 		}
 
-		Out.PointSpacing = ComputePointSpacing(Out);
+		// The occluder mesh, finest level (same encoding as the shadow mesh). A section that does not decode only
+		// costs the occlusion culling, so it does not fail the level.
+		if (HasOccluderMesh(Info) && !bExactLevel)
+		{
+			Splat::ShadowMesh Occluder;
+			std::string OccluderError;
+			if (Splat::ShadowMeshCodec::Decode(Data + H.OccluderMeshOffset, (size_t)H.OccluderMeshBytes, Occluder, OccluderError) && !Occluder.levels.empty())
+			{
+				const Splat::ShadowMeshLevel& L = Occluder.levels[0];
+				Out.OccluderPositions.reserve(L.positions.size());
+				for (const Splat::ShadowMeshVec3& P : L.positions) Out.OccluderPositions.push_back({ P.x, P.y, P.z });
+				Out.OccluderColours = L.colours;
+				Out.OccluderIndices = L.indices;
+			}
+		}
+		// The shadow mesh, finest level, for the gap fill. Only costs the fill when it does not decode.
+		if (HasShadowMesh(Info) && !bExactLevel && H.ShadowMeshOffset + H.ShadowMeshBytes <= Size)
+		{
+			Splat::ShadowMesh Shadow;
+			std::string ShadowError;
+			if (Splat::ShadowMeshCodec::Decode(Data + H.ShadowMeshOffset, (size_t)H.ShadowMeshBytes, Shadow, ShadowError) && !Shadow.levels.empty())
+			{
+				const Splat::ShadowMeshLevel& L = Shadow.levels[0];
+				Out.ShadowPositions.reserve(L.positions.size());
+				for (const Splat::ShadowMeshVec3& P : L.positions) Out.ShadowPositions.push_back({ P.x, P.y, P.z });
+				Out.ShadowColours = L.colours;
+				Out.ShadowIndices = L.indices;
+			}
+		}
+
+		Out.PointSpacing = bExactLevel ? 0.0f : ComputePointSpacing(Out);
 		return true;
 	}
 

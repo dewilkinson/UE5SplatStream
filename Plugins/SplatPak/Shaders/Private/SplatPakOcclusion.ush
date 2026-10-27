@@ -1,0 +1,23 @@
+// SplatPakOcclusion.ush
+// Occlusion culling of meshlets against the package's occluder mesh, ported from SplatSortCS.hlsl in the
+// 3DGSStream repo. The occluder mesh -- the solid body baked inside the model -- is rasterised from the
+// view into a small grid (OccWidth x OccHeight) that holds, per pixel, the nearest occluder depth (clip w,
+// view depth in world units) as float bits. Each triangle is written at its farthest vertex's depth, so
+// the grid is never nearer than the mesh. The amplification shader then drops a meshlet whose bounding
+// box, grown by a pixel, lies behind the occluder at every pixel it covers: it cannot show, as the
+// occluder sits inside the model's surface. Shared by SplatPakOcclusion.usf (the raster) and SplatPakDisc.usf
+// (the test); each declares ModelToClip, OccWidth and OccHeight.
+
+#pragma once
+
+#define OCC_EMPTY 0x7F7FFFFFu            // FLT_MAX: no occluder in this pixel
+#define OCC_MAX_TRI_PIXELS 8192u         // A triangle covering more of the grid than this is skipped (it then occludes nothing)
+#define OCC_MAX_MESHLET_PIXELS 256u      // A meshlet covering more of the grid than this is never culled
+
+// A model-space point projected into occlusion-grid pixels: x, y and the clip w (depth)
+float3 OccProject(float3 P)
+{
+	float4 C = mul(float4(P, 1.0), ModelToClip);
+	float InvW = 1.0 / max(C.w, 1e-6);
+	return float3((C.x * InvW * 0.5 + 0.5) * OccWidth, (-C.y * InvW * 0.5 + 0.5) * OccHeight, C.w);
+}

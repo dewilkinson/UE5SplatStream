@@ -1,0 +1,449 @@
+// SplatPakGaussian.usf
+// Streaming splat models drawn as SplatPak draws them: sorted 3D Gaussians, alpha-blended back to front over the scene,
+// depth-tested against it (and against the occluder mesh the gap fill writes). Ported from 3DGSStream's SplatSortCS.hlsl
+// (the expand, histogram, scan and scatter kernels of its 32-bit radix sort) and Splat.hlsl (BuildGaussianSplat,
+// SplatFalloff, the Gaussian pixel shader). Unreal matrices are row-vector: mul(float4(p, 1), M). Differences from SplatPak:
+//  - Blending is in linear light (SplatPak's "Linear" Splat Blending): Unreal's scene colour is linear.
+//  - The coarse levels are Gaussians with their scales capped at 1.5 x the level's point spacing times the block's spacing
+//    ratio (SplatPak's Coarse Levels as Gaussians, cap 1.50), not discs; level 0 keeps its own scales.
+//  - Colour is the stored DC term (the harmonics are not streamed to the GPU yet).
+// A block's cross-fade is its opacity weight (MeshletChunk.dilationMorph with the runtime's splatDrawAsDiscs off) and its
+// arrival glow is its wave (isSilhouette), as in SplatPak's Gaussian path.
+
+#include "/Engine/Private/Common.ush"
+
+#define BLOCK 1024
+#define THREADS 256
+#define PER_THREAD 4
+#define SLOT_CULLED_BIT 0x80000000u
+
+struct FSplatPakMeshlet
+{
+	float3 Center;
+	float  BoundingRadius;
+	float3 AabbMin;
+	uint   SplatOffset;
+	float3 AabbExtents;
+	uint   SplatCount;
+	float  BlendWeight;
+	uint   LodLevel;
+	float  DilationMorph;
+	float  IsSilhouette;
+	float3 ConeAxis;
+	float  ConeCutoff;
+};
+
+// ---- Sort (compute) ----------------------------------------------------------------------------------------------
+
+StructuredBuffer<uint> Records;                 // Five words per splat
+StructuredBuffer<FSplatPakMeshlet> Meshlets;    // The render list
+StructuredBuffer<uint> MeshletSlotBase;         // First slot of each meshlet (exclusive prefix of SplatCount)
+RWStructuredBuffer<uint2> SlotInfo;             // x = splat index, y = meshlet index | SLOT_CULLED_BIT
+RWStructuredBuffer<uint2> PairsIn;              // x = key, y = slot
+RWStructuredBuffer<uint2> PairsOut;
+RWStructuredBuffer<uint> Hist;                  // [digit * NumBlocks + block]
+float4x4 ModelToClip;
+float3   EyeModel;
+uint     MeshletCount;
+float3   ForwardModel;
+uint     SlotCount;
+float3   QuantMin;
+uint     PaddedSlotCount;
+float3   QuantExtents;
+uint     NumBlocks;
+uint     RadixPass;
+uint     GroupsX;
+
+uint FloatToOrderableUint(float F)
+{
+	const uint U = asuint(F);
+	const uint Mask = ((int)(U >> 31) != 0) ? 0xFFFFFFFFu : 0x80000000u;
+	return U ^ Mask;
+}
+
+float3 RecordPosition(uint SplatIndex)
+{
+	const uint W0 = Records[SplatIndex * 5u];
+	const uint W1 = Records[SplatIndex * 5u + 1u];
+	return QuantMin + float3(W0 & 0xFFFFu, (W0 >> 16) & 0xFFFFu, W1 & 0xFFFFu) / 65535.0 * QuantExtents;
+}
+
+// Unreal's reversed, infinite depth: z > w is in front of the near plane, z < 0 never happens
+bool MeshletVisible(FSplatPakMeshlet M)
+{
+	const float3 BMin = M.AabbMin;
+	const float3 BMax = M.AabbMin + M.AabbExtents;
+	uint OutL = 0, OutR = 0, OutB = 0, OutT = 0, OutN = 0;
+	[unroll]
+	for (uint i = 0; i < 8; i++)
+	{
+		const float3 P = float3((i & 1) ? BMax.x : BMin.x, (i & 2) ? BMax.y : BMin.y, (i & 4) ? BMax.z : BMin.z);
+		const float4 C = mul(float4(P, 1.0), ModelToClip);
+		if (C.w > 0.0001)
+		{
+			OutL += (C.x < -C.w) ? 1 : 0;
+			OutR += (C.x > C.w) ? 1 : 0;
+			OutB += (C.y < -C.w) ? 1 : 0;
+			OutT += (C.y > C.w) ? 1 : 0;
+		}
+		else
+		{
+			OutN++;
+		}
+	}
+	return OutL < 8 && OutR < 8 && OutB < 8 && OutT < 8 && OutN < 8;
+}
+
+// One 64-thread group per meshlet: its slots get their splat, meshlet and depth key (far first); a meshlet outside the
+// view has every slot flagged culled and keyed last. Groups past GroupsX fold over y.
+[numthreads(64, 1, 1)]
+void ExpandCS(uint3 GroupId : SV_GroupID, uint ThreadId : SV_GroupThreadID)
+{
+	const uint MeshletIndex = GroupId.y * GroupsX + GroupId.x;
+	if (MeshletIndex >= MeshletCount) return;
+	const FSplatPakMeshlet M = Meshlets[MeshletIndex];
+	const uint Base = MeshletSlotBase[MeshletIndex];
+	const bool bVisible = MeshletVisible(M);
+	for (uint t = ThreadId; t < M.SplatCount; t += 64)
+	{
+		const uint Slot = Base + t;
+		if (Slot >= SlotCount) break;
+		const uint SplatIndex = M.SplatOffset + t;
+		uint Key = 0xFFFFFFFFu;
+		uint Info = MeshletIndex | SLOT_CULLED_BIT;
+		if (bVisible)
+		{
+			const float Depth = dot(RecordPosition(SplatIndex) - EyeModel, ForwardModel);
+			Key = 0xFFFFFFFEu - FloatToOrderableUint(Depth); // Far first, and never the sentinel
+			Info = MeshletIndex;
+		}
+		SlotInfo[Slot] = uint2(SplatIndex, Info);
+		PairsIn[Slot] = uint2(Key, Slot);
+	}
+}
+
+// RadixPass 0 reads the expanded pairs; slots past SlotCount are sentinels no kernel wrote
+uint2 LoadPair(uint Index)
+{
+	if (Index >= PaddedSlotCount) return uint2(0xFFFFFFFFu, 0xFFFFFFFFu);
+	if (RadixPass == 0 && Index >= SlotCount) return uint2(0xFFFFFFFFu, 0xFFFFFFFFu);
+	return PairsIn[Index];
+}
+
+uint Digit(uint Key) { return (Key >> (8u * RadixPass)) & 0xFFu; }
+
+groupshared uint SHist[256];
+
+[numthreads(THREADS, 1, 1)]
+void HistogramCS(uint3 GroupId : SV_GroupID, uint ThreadId : SV_GroupThreadID)
+{
+	SHist[ThreadId] = 0;
+	GroupMemoryBarrierWithGroupSync();
+	const uint Block = GroupId.x;
+	[unroll]
+	for (uint j = 0; j < PER_THREAD; j++)
+	{
+		const uint2 P = LoadPair(Block * BLOCK + ThreadId * PER_THREAD + j);
+		InterlockedAdd(SHist[Digit(P.x)], 1u);
+	}
+	GroupMemoryBarrierWithGroupSync();
+	Hist[ThreadId * NumBlocks + Block] = SHist[ThreadId];
+}
+
+// Exclusive prefix sum over the whole digit-major histogram (256 x NumBlocks entries), one group
+groupshared uint SScan[1024];
+
+[numthreads(1024, 1, 1)]
+void ScanCS(uint ThreadId : SV_GroupThreadID)
+{
+	const uint Total = 256u * NumBlocks;
+	uint Carry = 0;
+	for (uint Tile = 0; Tile < Total; Tile += 1024)
+	{
+		const uint Index = Tile + ThreadId;
+		const uint V = (Index < Total) ? Hist[Index] : 0u;
+		SScan[ThreadId] = V;
+		GroupMemoryBarrierWithGroupSync();
+		[unroll]
+		for (uint Offset = 1; Offset < 1024; Offset <<= 1)
+		{
+			const uint Add = (ThreadId >= Offset) ? SScan[ThreadId - Offset] : 0u;
+			GroupMemoryBarrierWithGroupSync();
+			SScan[ThreadId] += Add;
+			GroupMemoryBarrierWithGroupSync();
+		}
+		const uint Inclusive = SScan[ThreadId];
+		if (Index < Total) Hist[Index] = Carry + Inclusive - V;
+		const uint TileTotal = SScan[1023];
+		GroupMemoryBarrierWithGroupSync();
+		Carry += TileTotal;
+	}
+}
+
+// Sorts one block of 1024 pairs by the current digit (stable), then scatters each pair to its global position
+groupshared uint SKey[BLOCK];
+groupshared uint SVal[BLOCK];
+groupshared uint SKey2[BLOCK];
+groupshared uint SVal2[BLOCK];
+groupshared uint SZeroScan[THREADS];
+groupshared uint SDigitStart[256];
+
+[numthreads(THREADS, 1, 1)]
+void ScatterCS(uint3 GroupId : SV_GroupID, uint ThreadId : SV_GroupThreadID)
+{
+	const uint Block = GroupId.x;
+	const uint MyBase = ThreadId * PER_THREAD;
+	[unroll]
+	for (uint j = 0; j < PER_THREAD; j++)
+	{
+		const uint2 P = LoadPair(Block * BLOCK + MyBase + j);
+		SKey[MyBase + j] = P.x;
+		SVal[MyBase + j] = P.y;
+	}
+	GroupMemoryBarrierWithGroupSync();
+
+	// Eight stable 1-bit partitions on the digit's bits, least significant first
+	for (uint Bit = 0; Bit < 8; Bit++)
+	{
+		const uint Shift = 8u * RadixPass + Bit;
+		uint Zeros = 0;
+		[unroll]
+		for (uint j1 = 0; j1 < PER_THREAD; j1++) Zeros += 1u - ((SKey[MyBase + j1] >> Shift) & 1u);
+		SZeroScan[ThreadId] = Zeros;
+		GroupMemoryBarrierWithGroupSync();
+		[unroll]
+		for (uint Offset = 1; Offset < THREADS; Offset <<= 1)
+		{
+			const uint Add = (ThreadId >= Offset) ? SZeroScan[ThreadId - Offset] : 0u;
+			GroupMemoryBarrierWithGroupSync();
+			SZeroScan[ThreadId] += Add;
+			GroupMemoryBarrierWithGroupSync();
+		}
+		const uint TotalZeros = SZeroScan[THREADS - 1];
+		uint ZerosBefore = SZeroScan[ThreadId] - Zeros;
+		[unroll]
+		for (uint j2 = 0; j2 < PER_THREAD; j2++)
+		{
+			const uint i = MyBase + j2;
+			const uint K = SKey[i];
+			const uint IsOne = (K >> Shift) & 1u;
+			const uint Dest = IsOne ? (TotalZeros + (i - ZerosBefore)) : ZerosBefore;
+			SKey2[Dest] = K;
+			SVal2[Dest] = SVal[i];
+			ZerosBefore += 1u - IsOne;
+		}
+		GroupMemoryBarrierWithGroupSync();
+		[unroll]
+		for (uint j3 = 0; j3 < PER_THREAD; j3++)
+		{
+			SKey[MyBase + j3] = SKey2[MyBase + j3];
+			SVal[MyBase + j3] = SVal2[MyBase + j3];
+		}
+		GroupMemoryBarrierWithGroupSync();
+	}
+
+	SDigitStart[ThreadId] = 0;
+	GroupMemoryBarrierWithGroupSync();
+	[unroll]
+	for (uint j4 = 0; j4 < PER_THREAD; j4++)
+	{
+		const uint i = MyBase + j4;
+		const uint D = Digit(SKey[i]);
+		if (i == 0 || Digit(SKey[i - 1]) != D) SDigitStart[D] = i;
+	}
+	GroupMemoryBarrierWithGroupSync();
+	[unroll]
+	for (uint j5 = 0; j5 < PER_THREAD; j5++)
+	{
+		const uint i = MyBase + j5;
+		const uint D = Digit(SKey[i]);
+		PairsOut[Hist[D * NumBlocks + Block] + (i - SDigitStart[D])] = uint2(SKey[i], SVal[i]);
+	}
+}
+
+// ---- Draw (vertex and pixel) -------------------------------------------------------------------------------------
+
+StructuredBuffer<uint2> SortedPairs;  // x = key, y = slot, far first
+StructuredBuffer<uint2> SortedSlotInfo;
+float4x4 ModelToView;                 // Unreal view space: x right, y up, z forward
+float2   Viewport;                    // Pixels
+float    Proj00;                      // The projection's [0][0]
+float    ScaleLog2Min;
+float    ScaleLog2Max;
+float    PreExposure;
+float    EmissiveIntensity;
+uint     StreamFlags;                 // Bit 1: Refinement Visualizer (arrival glow)
+float    GlowIntensity;
+float    GlowHue;
+float4   LevelRadii[2];               // Point spacing per level (model units): the coarse levels' scale cap
+
+struct FGaussianVSOut
+{
+	float4 Position : SV_POSITION;
+	float2 UV       : TEXCOORD0;
+	nointerpolation float3 Color : TEXCOORD1; // Linear
+	nointerpolation float  Alpha : TEXCOORD2;
+};
+
+static const float2 GaussianCorners[4] = { float2(-1.0, -1.0), float2(1.0, -1.0), float2(-1.0, 1.0), float2(1.0, 1.0) };
+static const uint GaussianVertexCorner[6] = { 0, 1, 2, 1, 3, 2 };
+
+float3x3 GaussianQuatToMat3(float4 Q)
+{
+	const float X = Q.x, Y = Q.y, Z = Q.z, W = Q.w;
+	return float3x3(
+		1.0 - 2.0 * (Y * Y + Z * Z), 2.0 * (X * Y - W * Z),       2.0 * (X * Z + W * Y),
+		2.0 * (X * Y + W * Z),       1.0 - 2.0 * (X * X + Z * Z), 2.0 * (Y * Z - W * X),
+		2.0 * (X * Z - W * Y),       2.0 * (Y * Z + W * X),       1.0 - 2.0 * (X * X + Y * Y));
+}
+
+float3 GaussianHsvToRgb(float HueDegrees, float S, float V)
+{
+	const float H = frac(HueDegrees / 360.0) * 6.0;
+	const float3 K = saturate(abs(fmod(H + float3(0.0, 4.0, 2.0), 6.0) - 3.0) - 1.0);
+	return V * lerp(float3(1.0, 1.0, 1.0), K, S);
+}
+
+static const float GaussianLevelGlowHue[8] = { 0.0, 180.0, 90.0, 270.0, 315.0, 135.0, 45.0, 225.0 };
+
+// SplatPak's arrival glow (Splat.hlsl ArrivalGlow), on the display-space colour
+void GaussianArrivalGlow(inout float3 Color, float W, uint Lod)
+{
+	const float Life = saturate(W / 0.95);
+	const float Fade = Life * Life * (3.0 - 2.0 * Life);
+	const float Heat = Life * Life * Life;
+	const float Hue = 45.0 + GlowHue + GaussianLevelGlowHue[min(Lod, 7u)];
+	const float3 GoldTint = GaussianHsvToRgb(Hue, 0.85, 1.0);
+	const float3 HotTint = GaussianHsvToRgb(Hue, 0.35, 1.0);
+	const float3 Tint = lerp(GoldTint, HotTint, Heat);
+	const float Opacity = saturate(0.70 * GlowIntensity) * Fade;
+	Color = lerp(Color, Tint * (1.0 + 0.5 * Heat), Opacity);
+	Color += GoldTint * (Fade * 0.45 * GlowIntensity) + HotTint * (Heat * 0.6 * GlowIntensity);
+}
+
+float3 GaussianSRGBToLinear(float3 C)
+{
+	const float3 Lo = C / 12.92;
+	const float3 Hi = pow(max(C + 0.055, 0.0) / 1.055, 2.4);
+	return float3(C.x <= 0.04045 ? Lo.x : Hi.x, C.y <= 0.04045 ? Lo.y : Hi.y, C.z <= 0.04045 ? Lo.z : Hi.z);
+}
+
+FGaussianVSOut CulledGaussian()
+{
+	FGaussianVSOut O;
+	O.Position = float4(0.0, 0.0, -2.0, 1.0);
+	O.UV = float2(0.0, 0.0);
+	O.Color = float3(0.0, 0.0, 0.0);
+	O.Alpha = 0.0;
+	return O;
+}
+
+// The sorted slot's Gaussian, projected the way the reference viewer does (Splat.hlsl BuildGaussianSplat): the 3D
+// covariance from rotation and scales, the perspective Jacobian at the splat's view-space position, a 0.3 pixel dilation,
+// the 2D eigen-decomposition, quad half-axes of 2 sqrt(2 lambda) pixels, and the alpha-dependent shrink of the quad
+void MainVS(uint VertexId : SV_VertexID, out FGaussianVSOut Out)
+{
+	Out = CulledGaussian();
+	const uint Order = VertexId / 6u;
+	if (Order >= SlotCount) return;
+	const uint2 Pair = SortedPairs[Order];
+	if (Pair.y >= SlotCount) return;
+	const uint2 Info = SortedSlotInfo[Pair.y];
+	if ((Info.y & SLOT_CULLED_BIT) != 0) return;
+	const FSplatPakMeshlet M = Meshlets[Info.y];
+	const uint S = Info.x * 5u;
+	const uint W0 = Records[S], W1 = Records[S + 1], W2 = Records[S + 2], W3 = Records[S + 3], W4 = Records[S + 4];
+
+	float Opacity = ((W2 >> 8) & 0xFFu) / 255.0 * saturate(M.DilationMorph); // The block's cross-fade weight
+	if (Opacity <= 1.0 / 255.0) return;
+	const float3 Pos = QuantMin + float3(W0 & 0xFFFFu, (W0 >> 16) & 0xFFFFu, W1 & 0xFFFFu) / 65535.0 * QuantExtents;
+	float3 Scale = exp2(ScaleLog2Min + (float3((W1 >> 16) & 0xFFu, (W1 >> 24) & 0xFFu, W2 & 0xFFu) / 255.0) * (ScaleLog2Max - ScaleLog2Min));
+	if (M.LodLevel >= 1u)
+	{
+		const uint L = min(M.LodLevel, 7u);
+		// Scaled by the block's spacing over its level's typical one (the runtime's StreamChunk::spacingRatio, carried in
+		// ConeCutoff as -1 - ratio), so a sparse block's Gaussians (a scene's background) are not shrunk to specks
+		const float CapScale = M.ConeCutoff < -1.0 ? -1.0 - M.ConeCutoff : 1.0;
+		const float Cap = 1.5 * LevelRadii[L >> 2][L & 3] * CapScale;
+		if (Cap > 0.0) Scale = min(Scale, Cap);
+	}
+	const uint Largest = W4 & 3u;
+	float Comps[4] = { 0.0, 0.0, 0.0, 0.0 };
+	float SumSq = 0.0;
+	uint Shift = 2;
+	[unroll]
+	for (uint i = 0; i < 4; i++)
+	{
+		if (i != Largest)
+		{
+			const float V = ((((W4 >> Shift) & 0x3FFu) / 1023.0) * 2.0 - 1.0) * 0.70710678118;
+			Comps[i] = V;
+			SumSq += V * V;
+			Shift += 10;
+		}
+	}
+	Comps[Largest] = sqrt(saturate(1.0 - SumSq));
+
+	const float3 ViewPos = mul(float4(Pos, 1.0), ModelToView).xyz;
+	if (ViewPos.z <= 0.01) return; // Behind the camera
+	float4 Clip = mul(float4(Pos, 1.0), ModelToClip);
+
+	// 3D covariance in model space, then in view space (row-vector view transform A: v' = A^T v)
+	const float3x3 R = GaussianQuatToMat3(float4(Comps[0], Comps[1], Comps[2], Comps[3]));
+	const float3x3 Mtx = mul(R, float3x3(Scale.x, 0.0, 0.0, 0.0, Scale.y, 0.0, 0.0, 0.0, Scale.z));
+	const float3x3 Sigma = mul(Mtx, transpose(Mtx));
+	const float3x3 A = (float3x3)ModelToView;
+	const float3x3 Sv = mul(mul(transpose(A), Sigma), A);
+
+	const float Focal = Viewport.x * Proj00;
+	const float J1 = Focal / ViewPos.z;
+	const float2 J2 = -J1 / ViewPos.z * ViewPos.xy;
+	const float3 R0 = float3(J1, 0.0, J2.x);
+	const float3 R1 = float3(0.0, J1, J2.y);
+	const float3 T0 = mul(Sv, R0);
+	const float3 T1 = mul(Sv, R1);
+	const float C00 = dot(R0, T0), C01 = dot(R0, T1), C11 = dot(R1, T1);
+
+	const float Diagonal1 = C00 + 0.3;
+	const float OffDiagonal = C01;
+	const float Diagonal2 = C11 + 0.3;
+	const float Mid = 0.5 * (Diagonal1 + Diagonal2);
+	const float Radius = length(float2((Diagonal1 - Diagonal2) * 0.5, OffDiagonal));
+	const float Lambda1 = Mid + Radius;
+	const float Lambda2 = max(Mid - Radius, 0.1);
+	const float VMin = min(1024.0, min(Viewport.x, Viewport.y));
+	const float L1 = 2.0 * min(sqrt(2.0 * Lambda1), VMin);
+	const float L2 = 2.0 * min(sqrt(2.0 * Lambda2), VMin);
+	const float2 C = Clip.w / Viewport; // One pixel in clip units at this depth
+	if (any((abs(Clip.xy) - max(L1, L2) * C) > Clip.w)) return;
+
+	float2 DiagonalVector = float2(OffDiagonal, Lambda1 - Diagonal1);
+	const float DvLen = length(DiagonalVector);
+	DiagonalVector = (DvLen > 1e-6) ? DiagonalVector / DvLen : float2(1.0, 0.0);
+	const float2 V1 = L1 * DiagonalVector;
+	const float2 V2 = L2 * float2(DiagonalVector.y, -DiagonalVector.x);
+
+	float3 Color = float3((W2 >> 16) & 0xFFu, (W2 >> 24) & 0xFFu, W3 & 0xFFu) / 255.0;
+	if ((StreamFlags & 2u) != 0 && M.IsSilhouette > 0.0 && M.IsSilhouette < 0.99) GaussianArrivalGlow(Color, M.IsSilhouette, M.LodLevel);
+
+	// Shrink the quad to where the Gaussian times opacity falls below 1/255
+	const float ClipS = min(1.0, sqrt(max(0.0, log(Opacity * 255.0))) * 0.5);
+	const float2 Corner = GaussianCorners[GaussianVertexCorner[VertexId % 6u]];
+	// Unreal's projection flips nothing: clip y is up, as in SplatPak's D3D projection
+	Out.Position = Clip + float4((Corner.x * V1 + Corner.y * V2) * C * ClipS, 0.0, 0.0);
+	Out.UV = (Corner * ClipS) * 0.5 + 0.5;
+	Out.Color = GaussianSRGBToLinear(saturate(Color)) * EmissiveIntensity * PreExposure;
+	Out.Alpha = Opacity;
+}
+
+// The reference viewer's normalised falloff over the quad, reaching zero at its edge, times the opacity; premultiplied
+void MainPS(FGaussianVSOut In, out float4 OutColor : SV_Target0)
+{
+	const float2 Centered = In.UV * 2.0 - 1.0;
+	const float D = dot(Centered, Centered);
+	if (D > 1.0) discard;
+	const float EXP4 = 0.01831563888873418;
+	const float A = (exp(-4.0 * D) - EXP4) / (1.0 - EXP4) * In.Alpha;
+	if (A < 1.0 / 255.0) discard;
+	OutColor = float4(In.Color * A, A);
+}

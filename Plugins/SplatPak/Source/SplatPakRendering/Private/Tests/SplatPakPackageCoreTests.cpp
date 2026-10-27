@@ -1,8 +1,8 @@
-// SplatPackageCoreTests.cpp
+// SplatPakPackageCoreTests.cpp
 
-#include "SplatPackageCoreTests.h"
+#include "SplatPakPackageCoreTests.h"
 
-#include "SplatPackageCore.h"
+#include "SplatPakPackageCore.h"
 #include "ByteShuffle.h"
 
 #include <cmath>
@@ -272,6 +272,17 @@ namespace SplatCoreTests
 					Check(M.Colours.size() == M.Positions.size(), "shadow mesh colours do not match the vertices");
 				}
 			}
+		}
+
+		// Occluder mesh: decoded with the level, triangles with valid indices
+		if (HasOccluderMesh(Info))
+		{
+			FDecodedLevel L;
+			Check(DecodeLevel(Data, Size, Info, 99, L, Error), "DecodeLevel(coarsest) failed: " + Error);
+			Check(!L.OccluderIndices.empty() && L.OccluderIndices.size() % 3 == 0, "the occluder mesh did not decode with the level");
+			uint32_t Bad = 0;
+			for (uint32_t i : L.OccluderIndices) Bad += i >= L.OccluderPositions.size() ? 1 : 0;
+			Check(Bad == 0, "occluder mesh indices past the vertex count");
 		}
 		return Check.Ok;
 	}

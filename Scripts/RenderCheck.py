@@ -68,12 +68,12 @@ def check_sample(name):
     sun = actors.spawn_actor_from_class(unreal.DirectionalLight, unreal.Vector(0, 0, 500), unreal.Rotator(pitch=-40, yaw=-30))
     actors.spawn_actor_from_class(unreal.SkyLight, unreal.Vector(0, 0, 600))
 
-    splats = actors.spawn_actor_from_class(unreal.SplatActor, unreal.Vector(0, 0, 0))
-    component = splats.get_editor_property("splat_component")
+    splats = actors.spawn_actor_from_class(unreal.SplatPakActor, unreal.Vector(0, 0, 0))
+    component = splats.get_editor_property("splat_pak_component")
     component.set_editor_property("resident_level", LEVEL)
     component_asset[0] = asset
     if os.environ.get("RENDERCHECK_NO_SPLATS") != "1":  # debugging: same scene, nothing for the plugin to draw
-        component.set_splat_asset(asset)
+        component.set_splat_pak_asset(asset)
     origin, extent = splats.get_actor_bounds(False)
     radius = max(extent.x, extent.y, extent.z, 1.0)
     log("%s bounds: origin %s extent %s" % (name, origin, extent))
@@ -138,8 +138,8 @@ def check_shadow(name, actors, component, origin, extent, radius, cap, rt):
     cap.set_actor_rotation(unreal.MathLibrary.find_look_at_rotation(cam, unreal.Vector(origin.x, origin.y + radius * 0.6, origin.z - extent.z)), False)
     for label, cast in (("shadow", True), ("shadow_off", False)):
         component.set_editor_property("shadow_mesh_cast_shadow", cast)
-        component.set_splat_asset(None)
-        component.set_splat_asset(component_asset[0])
+        component.set_splat_pak_asset(None)
+        component.set_splat_pak_asset(component_asset[0])
         capture(cap, rt, "%s_%s_warmup.png" % (name, label))
         shots[label] = capture(cap, rt, "%s_%s.png" % (name, label))
     component.set_editor_property("shadow_mesh_cast_shadow", True)
@@ -149,8 +149,8 @@ def check_shadow(name, actors, component, origin, extent, radius, cap, rt):
     component.set_visibility(False, False)  # Splats off, so only the (hidden) shadow mesh's field can show where the model is
     for label, affect in (("distancefield", True), ("distancefield_off", False)):
         component.set_editor_property("shadow_mesh_affect_lumen", affect)
-        component.set_splat_asset(None)
-        component.set_splat_asset(component_asset[0])
+        component.set_splat_pak_asset(None)
+        component.set_splat_pak_asset(component_asset[0])
         capture(cap, rt, "%s_%s_warmup.png" % (name, label))
         shots[label] = capture(cap, rt, "%s_%s.png" % (name, label))
     cc.set_editor_property("show_flag_settings", [])

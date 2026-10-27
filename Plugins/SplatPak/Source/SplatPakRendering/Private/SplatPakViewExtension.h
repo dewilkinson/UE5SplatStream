@@ -1,4 +1,4 @@
-// SplatViewExtension.h
+// SplatPakViewExtension.h
 // Hooks the splat passes into Unreal's frame. Step 1 draws opaque discs in the pre-post-process
 // callback: after lighting, before TSR, depth-tested and depth-writing against the scene.
 
@@ -6,10 +6,10 @@
 
 #include "SceneViewExtension.h"
 
-class FSplatViewExtension : public FSceneViewExtensionBase
+class FSplatPakViewExtension : public FSceneViewExtensionBase
 {
 public:
-	FSplatViewExtension(const FAutoRegister& AutoRegister) : FSceneViewExtensionBase(AutoRegister) {}
+	FSplatPakViewExtension(const FAutoRegister& AutoRegister) : FSceneViewExtensionBase(AutoRegister) {}
 
 	virtual void SetupViewFamily(FSceneViewFamily& InViewFamily) override {}
 	virtual void SetupView(FSceneViewFamily& InViewFamily, FSceneView& InView) override {}

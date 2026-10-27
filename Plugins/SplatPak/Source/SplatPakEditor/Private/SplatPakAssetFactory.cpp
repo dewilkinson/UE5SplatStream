@@ -1,10 +1,10 @@
-// SplatAssetFactory.cpp
+// SplatPakAssetFactory.cpp
 
-#include "SplatAssetFactory.h"
+#include "SplatPakAssetFactory.h"
 
 #include "Misc/FeedbackContext.h"
-#include "SplatAsset.h"
-#include "SplatPackageCore.h"
+#include "SplatPakAsset.h"
+#include "SplatPakPackageCore.h"
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "Engine/StaticMesh.h"
 #include "MeshDescription.h"
@@ -14,7 +14,7 @@
 
 DEFINE_LOG_CATEGORY_STATIC(LogSplatPakImport, Log, All);
 
-UStaticMesh* USplatAssetFactory::BuildShadowMesh(USplatAsset* Asset, UObject* Outer, FName MeshName, EObjectFlags Flags)
+UStaticMesh* USplatPakAssetFactory::BuildShadowMesh(USplatPakAsset* Asset, UObject* Outer, FName MeshName, EObjectFlags Flags)
 {
 	const FName InName = Asset->GetFName();
 	std::vector<SplatCore::FShadowMeshLevel> Levels;
@@ -86,9 +86,9 @@ UStaticMesh* USplatAssetFactory::BuildShadowMesh(USplatAsset* Asset, UObject* Ou
 	return Mesh;
 }
 
-USplatAssetFactory::USplatAssetFactory()
+USplatPakAssetFactory::USplatPakAssetFactory()
 {
-	SupportedClass = USplatAsset::StaticClass();
+	SupportedClass = USplatPakAsset::StaticClass();
 	Formats.Add(TEXT("gstx;GSTx package"));
 	Formats.Add(TEXT("sflw;GSTx package (older .sflw)"));
 	bCreateNew = false;
@@ -96,10 +96,10 @@ USplatAssetFactory::USplatAssetFactory()
 	bText = false;
 }
 
-UObject* USplatAssetFactory::FactoryCreateBinary(UClass* InClass, UObject* InParent, FName InName, EObjectFlags Flags, UObject* Context,
+UObject* USplatPakAssetFactory::FactoryCreateBinary(UClass* InClass, UObject* InParent, FName InName, EObjectFlags Flags, UObject* Context,
 	const TCHAR* Type, const uint8*& Buffer, const uint8* BufferEnd, FFeedbackContext* Warn)
 {
-	USplatAsset* Asset = NewObject<USplatAsset>(InParent, InClass, InName, Flags | RF_Transactional);
+	USplatPakAsset* Asset = NewObject<USplatPakAsset>(InParent, InClass, InName, Flags | RF_Transactional);
 
 	FString Error;
 	if (!Asset->SetPackageData(TArrayView<const uint8>(Buffer, (int32)(BufferEnd - Buffer)), Error))

@@ -1,6 +1,6 @@
 using UnrealBuildTool;
 
-// Editor-only: importing .gstx packages as USplatAsset.
+// Editor-only: importing .gstx packages as USplatPakAsset.
 public class SplatPakEditor : ModuleRules
 {
 	public SplatPakEditor(ReadOnlyTargetRules Target) : base(Target)

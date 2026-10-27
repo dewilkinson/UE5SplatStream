@@ -1,19 +1,19 @@
-// SplatSceneProxy.h
-// Render-thread representative of a USplatComponent: an FPrimitiveSceneProxy for Unreal's scene
-// (bounds, visibility, transform) and an FSplatDrawable for the splat passes.
+// SplatPakSceneProxy.h
+// Render-thread representative of a USplatPakComponent: an FPrimitiveSceneProxy for Unreal's scene
+// (bounds, visibility, transform) and an FSplatPakDrawable for the splat passes.
 
 #pragma once
 
 #include "PrimitiveSceneProxy.h"
 #include "Runtime/Launch/Resources/Version.h"
-#include "SplatDrawable.h"
+#include "SplatPakDrawable.h"
 
-class USplatComponent;
+class USplatPakComponent;
 
-class FSplatSceneProxy final : public FPrimitiveSceneProxy, public FSplatDrawable
+class FSplatPakSceneProxy final : public FPrimitiveSceneProxy, public FSplatPakDrawable
 {
 public:
-	FSplatSceneProxy(const USplatComponent* Component, FSplatLevelPtr InLevel, const FSplatDrawSettings& InSettings);
+	FSplatPakSceneProxy(const USplatPakComponent* Component, FSplatPakLevelPtr InLevel, const FSplatPakDrawSettings& InSettings, FSplatPakStreamSourcePtr InStream = nullptr);
 
 	//~ FPrimitiveSceneProxy
 	virtual SIZE_T GetTypeHash() const override;
@@ -26,7 +26,7 @@ public:
 #endif
 	virtual void DestroyRenderThreadResources() override;
 
-	//~ FSplatDrawable
+	//~ FSplatPakDrawable
 	virtual bool IsVisibleInView(const FSceneView& View) const override;
 	virtual FMatrix GetModelToWorld() const override;
 

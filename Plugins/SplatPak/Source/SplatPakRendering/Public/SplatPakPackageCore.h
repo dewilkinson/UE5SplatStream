@@ -1,4 +1,4 @@
-// SplatPackageCore.h
+// SplatPakPackageCore.h
 // Engine-independent .gstx reading for the SplatPak plugin: the on-disk layout (mirrors
 // WaveletTypes.h in the 3DGSStream repo), header/manifest validation, decoding one level into
 // GPU-ready records, and splitting it into the 64-splat meshlets the draw shaders consume.
@@ -104,7 +104,7 @@ namespace SplatCore
 		std::vector<FChunkLODHeader> Lods;
 	};
 
-	// One draw meshlet, laid out as MeshletChunkGPU / FSplatMeshlet in the shaders (80 bytes).
+	// One draw meshlet, laid out as MeshletChunkGPU / FSplatPakMeshlet in the shaders (80 bytes).
 	struct FMeshlet
 	{
 		FVec3    Center;
@@ -143,15 +143,26 @@ namespace SplatCore
 		FVec3 QuantMin = {}, QuantExtents = {}; // Frame the record positions are quantized in
 		float ScaleLog2Min = 0.0f, ScaleLog2Max = 0.0f;
 		float PointSpacing = 0.0f; // Median nearest-neighbour distance (model units); 0 = unknown
+		// The package's occluder mesh (v13+), finest level: the solid body inside the model, which the disc pass
+		// rasterises to cull meshlets hidden behind it (SplatPakOcclusion.ush). Empty when the package has none.
+		std::vector<FVec3> OccluderPositions;
+		std::vector<uint32_t> OccluderColours; // 0xAABBGGRR per vertex
+		std::vector<uint32_t> OccluderIndices;
+		// The package's shadow mesh (v12+), finest level: the visible surface in the splats' colours, drawn behind them so
+		// sparse areas read as surface (SplatPak's gap fill). Empty when the package has none.
+		std::vector<FVec3> ShadowPositions;
+		std::vector<uint32_t> ShadowColours;   // 0xAABBGGRR per vertex
+		std::vector<uint32_t> ShadowIndices;
 	};
 
 	// Reads and validates the header and chunk manifest. Data is the whole package file.
 	SPLATPAKRENDERING_API bool ReadPackageInfo(const uint8_t* Data, uint64_t Size, FPackageInfo& Out, std::string& OutError);
 
 	// Decodes one level. Chunks that stop short of RequestedLevel contribute their coarsest level, so
-	// RequestedLevel >= MaxLevel loads the coarsest representation of the whole model.
+	// RequestedLevel >= MaxLevel loads the coarsest representation of the whole model. bExactLevel: only the chunks that
+	// carry RequestedLevel itself, and no occluder mesh or point spacing (the streaming levels, SplatPakStreamLevels.h).
 	SPLATPAKRENDERING_API bool DecodeLevel(const uint8_t* Data, uint64_t Size, const FPackageInfo& Info, uint32_t RequestedLevel,
-		FDecodedLevel& Out, std::string& OutError);
+		FDecodedLevel& Out, std::string& OutError, bool bExactLevel = false);
 
 	// Model-space position of record Index (same maths as the shaders).
 	SPLATPAKRENDERING_API FVec3 DecodePosition(const FDecodedLevel& Level, uint32_t Index);
@@ -169,6 +180,7 @@ namespace SplatCore
 		std::vector<uint32_t> Indices;
 	};
 	inline bool HasShadowMesh(const FPackageInfo& Info) { return Info.Header.ShadowMeshOffset != 0; }
+	inline bool HasOccluderMesh(const FPackageInfo& Info) { return Info.Header.OccluderMeshOffset != 0; }
 	SPLATPAKRENDERING_API bool ReadShadowMesh(const uint8_t* Data, uint64_t Size, const FPackageInfo& Info,
 		std::vector<FShadowMeshLevel>& OutLevels, std::string& OutError);
 }

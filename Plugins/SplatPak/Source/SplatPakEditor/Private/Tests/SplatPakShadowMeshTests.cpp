@@ -1,4 +1,4 @@
-// SplatShadowMeshTests.cpp
+// SplatPakShadowMeshTests.cpp
 // Unreal automation tests for the shadow mesh (3DGSStream docs/requirements/gstx-shadow-mesh.md, criterion 9): a splat
 // model whose package carries a shadow mesh blocks line traces at its visible surface, and lets them through with
 // Collision off. Run with Scripts/Test.ps1 -Filter SplatPak.ShadowMesh.
@@ -15,18 +15,18 @@
 #include "DistanceFieldAtlas.h"
 #include "StaticMeshResources.h"
 #include "Engine/World.h"
-#include "SplatActor.h"
-#include "SplatAsset.h"
-#include "SplatAssetFactory.h"
-#include "SplatComponent.h"
-#include "SplatPackageCore.h"
+#include "SplatPakActor.h"
+#include "SplatPakAsset.h"
+#include "SplatPakAssetFactory.h"
+#include "SplatPakComponent.h"
+#include "SplatPakPackageCore.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSplatShadowMeshTraceTest, "SplatPak.ShadowMesh.Trace",
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSplatPakShadowMeshTraceTest, "SplatPak.ShadowMesh.Trace",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
-bool FSplatShadowMeshTraceTest::RunTest(const FString& Parameters)
+bool FSplatPakShadowMeshTraceTest::RunTest(const FString& Parameters)
 {
 	FString Repo = FPlatformMisc::GetEnvironmentVariable(TEXT("SPLATPAK_REPO"));
 	if (Repo.IsEmpty()) Repo = TEXT("C:/github/3DGSStream");
@@ -38,14 +38,14 @@ bool FSplatShadowMeshTraceTest::RunTest(const FString& Parameters)
 		return false;
 	}
 
-	USplatAsset* Asset = NewObject<USplatAsset>(GetTransientPackage(), TEXT("TraceTestAsset"), RF_Transient);
+	USplatPakAsset* Asset = NewObject<USplatPakAsset>(GetTransientPackage(), TEXT("TraceTestAsset"), RF_Transient);
 	FString Error;
 	if (!Asset->SetPackageData(TArrayView<const uint8>(Bytes.GetData(), (int32)Bytes.Num()), Error))
 	{
 		AddError(TEXT("SetPackageData failed: ") + Error);
 		return false;
 	}
-	Asset->ShadowMesh = USplatAssetFactory::BuildShadowMesh(Asset, GetTransientPackage(), TEXT("TraceTestAsset_ShadowMesh"), RF_Transient);
+	Asset->ShadowMesh = USplatPakAssetFactory::BuildShadowMesh(Asset, GetTransientPackage(), TEXT("TraceTestAsset_ShadowMesh"), RF_Transient);
 	if (!Asset->ShadowMesh)
 	{
 		AddError(TEXT("The package has no shadow mesh (rebake it with a version 12 build)."));
@@ -68,9 +68,9 @@ bool FSplatShadowMeshTraceTest::RunTest(const FString& Parameters)
 	}
 	FActorSpawnParameters Params;
 	Params.ObjectFlags = RF_Transient;
-	ASplatActor* Actor = World->SpawnActor<ASplatActor>(FVector::ZeroVector, FRotator::ZeroRotator, Params);
-	Actor->SplatComponent->SetSplatAsset(Asset);
-	UStaticMeshComponent* MeshComponent = Actor->SplatComponent->GetShadowMeshComponent();
+	ASplatPakActor* Actor = World->SpawnActor<ASplatPakActor>(FVector::ZeroVector, FRotator::ZeroRotator, Params);
+	Actor->SplatPakComponent->SetSplatPakAsset(Asset);
+	UStaticMeshComponent* MeshComponent = Actor->SplatPakComponent->GetShadowMeshComponent();
 	TestNotNull(TEXT("hidden shadow mesh component"), MeshComponent);
 	if (MeshComponent)
 	{
@@ -82,8 +82,8 @@ bool FSplatShadowMeshTraceTest::RunTest(const FString& Parameters)
 
 	// Trace from outside the model towards its centre along a few axes, and compare each hit with the visible surface:
 	// the first level 0 splat within a narrow cylinder around the ray
-	FSplatLevelPtr Level0 = Asset->GetDecodedLevel(0, &Error);
-	const FMatrix ModelToWorld = Actor->SplatComponent->GetModelToLocal() * Actor->SplatComponent->GetComponentTransform().ToMatrixWithScale();
+	FSplatPakLevelPtr Level0 = Asset->GetDecodedLevel(0, &Error);
+	const FMatrix ModelToWorld = Actor->SplatPakComponent->GetModelToLocal() * Actor->SplatPakComponent->GetComponentTransform().ToMatrixWithScale();
 	const FBox Bounds = Asset->GetModelBounds().TransformBy(ModelToWorld);
 	const double Diagonal = (Bounds.Max - Bounds.Min).Size();
 	const FVector Centre = Bounds.GetCenter();
@@ -130,23 +130,23 @@ bool FSplatShadowMeshTraceTest::RunTest(const FString& Parameters)
 	TestTrue(TEXT("at least three traces reached the model"), Checked >= 3);
 
 	// Affect Lumen off: the mesh no longer feeds distance-field lighting or Lumen
-	Actor->SplatComponent->bShadowMeshAffectLumen = false;
-	Actor->SplatComponent->SetSplatAsset(nullptr);
-	Actor->SplatComponent->SetSplatAsset(Asset);
-	if (UStaticMeshComponent* M = Actor->SplatComponent->GetShadowMeshComponent())
+	Actor->SplatPakComponent->bShadowMeshAffectLumen = false;
+	Actor->SplatPakComponent->SetSplatPakAsset(nullptr);
+	Actor->SplatPakComponent->SetSplatPakAsset(Asset);
+	if (UStaticMeshComponent* M = Actor->SplatPakComponent->GetShadowMeshComponent())
 	{
 		TestFalse(TEXT("with Affect Lumen off the mesh stays out of distance-field lighting and Lumen"), M->bAffectDistanceFieldLighting || M->bAffectIndirectLightingWhileHidden);
 	}
-	Actor->SplatComponent->bShadowMeshAffectLumen = true;
+	Actor->SplatPakComponent->bShadowMeshAffectLumen = true;
 
 	// Collision off: traces pass through
-	Actor->SplatComponent->bShadowMeshCollision = false;
-	Actor->SplatComponent->SetSplatAsset(nullptr);
-	Actor->SplatComponent->SetSplatAsset(Asset);
+	Actor->SplatPakComponent->bShadowMeshCollision = false;
+	Actor->SplatPakComponent->SetSplatPakAsset(nullptr);
+	Actor->SplatPakComponent->SetSplatPakAsset(Asset);
 	{
 		FHitResult Hit;
 		const bool bHit = World->LineTraceSingleByChannel(Hit, Centre - FVector(1, 0, 0) * Diagonal, Centre + FVector(1, 0, 0) * Diagonal, ECC_Visibility);
-		TestFalse(TEXT("with Collision off the trace passes through"), bHit && Hit.GetComponent() == Actor->SplatComponent->GetShadowMeshComponent());
+		TestFalse(TEXT("with Collision off the trace passes through"), bHit && Hit.GetComponent() == Actor->SplatPakComponent->GetShadowMeshComponent());
 	}
 	World->DestroyActor(Actor);
 	return true;

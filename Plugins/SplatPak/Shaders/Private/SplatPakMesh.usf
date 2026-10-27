@@ -1,0 +1,47 @@
+// SplatPakMesh.usf
+// The package's meshes behind the splats, as SplatPak draws them (ShadowMesh.hlsl in 3DGSStream): the occluder mesh writes
+// depth, so the splats on the far side of the model stay hidden, and the shadow mesh, in the splats' colours, fills the
+// gaps between sparse splats so the model reads as one surface. Both are drawn before the disc pass, lit with SplatPak's
+// fixed two-sided key light from the face normal, linear and pre-exposed like the discs. No input layout: the vertex
+// shader fetches the index list and the vertices from structured buffers.
+
+#include "/Engine/Private/Common.ush"
+
+StructuredBuffer<float> MeshPositions; // Three floats per vertex, model space
+StructuredBuffer<uint>  MeshColours;   // 0xAABBGGRR per vertex
+StructuredBuffer<uint>  MeshIndices;
+float4x4 ModelToClip;
+float3   LightDirModel;
+float    PreExposure;
+float    EmissiveIntensity;
+
+struct FSplatPakMeshVSOut
+{
+	float4 Position : SV_POSITION;
+	float3 Model    : TEXCOORD0;
+	float3 Color    : TEXCOORD1;
+};
+
+float3 MeshSRGBToLinear(float3 C)
+{
+	float3 Lo = C / 12.92;
+	float3 Hi = pow(max(C + 0.055, 0.0) / 1.055, 2.4);
+	return float3(C.x <= 0.04045 ? Lo.x : Hi.x, C.y <= 0.04045 ? Lo.y : Hi.y, C.z <= 0.04045 ? Lo.z : Hi.z);
+}
+
+void MainVS(uint VertexId : SV_VertexID, out FSplatPakMeshVSOut Out)
+{
+	const uint I = MeshIndices[VertexId];
+	const float3 P = float3(MeshPositions[I * 3], MeshPositions[I * 3 + 1], MeshPositions[I * 3 + 2]);
+	const uint C = MeshColours[I];
+	Out.Position = mul(float4(P, 1.0), ModelToClip);
+	Out.Model = P;
+	Out.Color = float3(C & 0xFF, (C >> 8) & 0xFF, (C >> 16) & 0xFF) / 255.0;
+}
+
+void MainPS(FSplatPakMeshVSOut In, out float4 OutColor : SV_Target0)
+{
+	const float3 N = normalize(cross(ddx(In.Model), ddy(In.Model)));
+	const float Lighting = 0.35 + 0.65 * abs(dot(N, LightDirModel));
+	OutColor = float4(MeshSRGBToLinear(saturate(In.Color * Lighting)) * EmissiveIntensity * PreExposure, 1.0);
+}

@@ -1,4 +1,4 @@
-// SplatDisc.usf
+// SplatPakDisc.usf
 // Step 1 of the Unreal port: opaque, depth-tested discs from 8-byte point records or 20-byte splat records.
 // Ported from Splat.hlsl in the 3DGSStream repo (BuildSplat render modes 1 and 4, mainAS/mainMS,
 // mainVS, mainPS). Differences from the original:
@@ -11,15 +11,20 @@
 //  - Splat records draw with their DC colour only; spherical harmonics arrive with step 3.
 //  - Output is linear and pre-exposed, as Unreal's scene colour expects, scaled by EmissiveIntensity:
 //    the stored colours are baked light, so they behave like an emissive surface under Unreal's exposure.
-// Chunk-level culling: frustum test in the amplification shader; the vertex fallback leaves it to
-// the rasterizer, as SplatPak does. Normal-cone culling arrives with step 2.
+// Chunk-level culling: frustum and occlusion tests in the amplification shader (occlusion against the
+// package's occluder mesh, SplatPakOcclusion.ush); the vertex fallback leaves culling to the rasterizer and
+// the depth test. Normal-cone culling arrives with step 2.
+// Streaming (USplatPakComponent with streaming on): the meshlets are the runtime's render list, mixing levels. Each disc
+// takes its level's radius (LevelRadii), a meshlet mid cross-fade is dithered against its parent or children with
+// SplatPak's 8x8 Bayer pattern (BlendWeight: +t fading in, -t fading out), and a block just delivered glows in its
+// level's hue (IsSilhouette carries the arrival wave, ArrivalGlow), as SplatPak's Refinement Visualizer draws it.
 
 #include "/Engine/Private/Common.ush"
 
 #define SPLATS_PER_GROUP 64
 #define AS_GROUP_SIZE 32
 
-struct FSplatMeshlet
+struct FSplatPakMeshlet
 {
 	float3 Center;
 	float  BoundingRadius;
@@ -36,12 +41,12 @@ struct FSplatMeshlet
 };
 
 StructuredBuffer<uint>           Records;
-StructuredBuffer<FSplatMeshlet> Meshlets;
+StructuredBuffer<FSplatPakMeshlet> Meshlets;
 float4x4 ModelToClip;
 float3   CamRightModel;
 float    SplatScale;
 float3   CamUpModel;
-float    LevelRadius;   // Auto splat size: the level's point spacing x coverage (model units); 0 = size classes
+float    GlowIntensity; // Refinement Visualizer strength (1 = SplatPak's full glow)
 float3   EyeModel;
 float    ClipWToModel;  // Clip-space w (world units) to model units
 float3   QuantMin;
@@ -55,12 +60,24 @@ float    ScaleLog2Max;
 float    PreExposure;
 uint     WordsPerRecord;
 float    EmissiveIntensity; // Brightness of the stored (baked) colour as emissive light; 1 = as stored
+StructuredBuffer<uint> OccDepth; // Occlusion grid (SplatPakOcclusion.ush)
+uint     OcclusionCull;  // 1 = drop meshlets hidden behind the occluder mesh; 2 = draw only those (debug)
+uint     OccWidth;
+uint     OccHeight;
+float    OccNearW;       // The view's near-plane distance (clip w)
+float    OccMeshletPad;  // The largest disc radius (model units): a meshlet's bounds cover centres, its discs reach this much further
+uint     StreamFlags;    // Bit 0: dither cross-fades by BlendWeight; bit 1: Refinement Visualizer (arrival glow)
+float    GlowHue;        // Rotates every level's glow hue, degrees (0 = gold at level 0)
+float4   LevelRadii[2];  // Auto splat size per level: the level's point spacing x coverage (model units); 0 = size classes
 
-struct FSplatVSOut
+#include "/Plugin/SplatPak/Private/SplatPakOcclusion.ush"
+
+struct FSplatPakVSOut
 {
 	float4 Position : SV_POSITION;
 	float2 UV       : TEXCOORD0;
 	float3 Color    : TEXCOORD1; // Display-space colour (as stored)
+	nointerpolation float BlendWeight : TEXCOORD2; // The meshlet's cross-fade (1 = solid)
 };
 
 static const float2 QuadCorners[4] = { float2(-1.0, -1.0), float2(1.0, -1.0), float2(-1.0, 1.0), float2(1.0, 1.0) };
@@ -117,7 +134,7 @@ float3 SRGBToLinearColor(float3 C)
 // Per-splat disc construction (BuildSplat, render modes 1 and 4)
 // ---------------------------------------------------------------------------------------------
 
-struct FSplatDisc
+struct FSplatPakDisc
 {
 	float3 Center;
 	float3 TangentX;
@@ -154,14 +171,47 @@ void SolidDot(float DistToCam, inout float3 TangentX, inout float3 TangentY)
 	}
 }
 
-float AutoSplatRadius(float ClassRadius, float ClassScale)
+float LevelRadiusOf(uint Lod)
 {
+	const uint L = min(Lod, 7u);
+	return LevelRadii[L >> 2][L & 3];
+}
+
+float AutoSplatRadius(float ClassRadius, float ClassScale, uint Lod)
+{
+	const float LevelRadius = LevelRadiusOf(Lod);
 	return (LevelRadius > 0.0) ? SplatScale * LevelRadius * min(ClassScale, 2.5) : ClassRadius;
 }
 
-bool BuildDisc(uint SplatIndex, out FSplatDisc Disc)
+float3 HsvToRgb(float HueDegrees, float S, float V)
 {
-	Disc = (FSplatDisc)0;
+	const float H = frac(HueDegrees / 360.0) * 6.0;
+	const float3 K = saturate(abs(fmod(H + float3(0.0, 4.0, 2.0), 6.0) - 3.0) - 1.0);
+	return V * lerp(float3(1.0, 1.0, 1.0), K, S);
+}
+
+// Hue offset of the arrival glow per level (kArrivalGlowLevelHue in SplatPak's Splat.hlsl): consecutive levels sit across
+// the colour wheel from one another, so the level a block brings is readable as it arrives
+static const float LevelGlowHue[8] = { 0.0, 180.0, 90.0, 270.0, 315.0, 135.0, 45.0, 225.0 };
+
+// SplatPak's arrival glow (Splat.hlsl ArrivalGlow): W is the block's wave, 0.95 just delivered -> 0 faded
+void ArrivalGlow(inout float3 Color, float W, uint Lod)
+{
+	const float Life = saturate(W / 0.95);
+	const float Fade = Life * Life * (3.0 - 2.0 * Life);
+	const float Heat = Life * Life * Life;
+	const float Hue = 45.0 + GlowHue + LevelGlowHue[min(Lod, 7u)];
+	const float3 GoldTint = HsvToRgb(Hue, 0.85, 1.0);
+	const float3 HotTint = HsvToRgb(Hue, 0.35, 1.0);
+	const float3 Tint = lerp(GoldTint, HotTint, Heat);
+	const float Opacity = saturate(0.70 * GlowIntensity) * Fade;
+	Color = lerp(Color, Tint * (1.0 + 0.5 * Heat), Opacity);
+	Color += GoldTint * (Fade * 0.45 * GlowIntensity) + HotTint * (Heat * 0.6 * GlowIntensity);
+}
+
+bool BuildDisc(uint SplatIndex, uint Lod, float Wave, out FSplatPakDisc Disc)
+{
+	Disc = (FSplatPakDisc)0;
 	float3 Normal;
 	float Radius;
 	bool bLit;
@@ -178,7 +228,7 @@ bool BuildDisc(uint SplatIndex, out FSplatDisc Disc)
 		float RadScale = (RadiusExp == 0) ? 1.0 : (RadiusExp == 1) ? 1.5 : (RadiusExp == 2) ? 2.5 : 4.5;
 		float MaxExtent = max(QuantExtents.x, max(QuantExtents.y, QuantExtents.z));
 		float BaseVoxelRadius = max(0.0005, (MaxExtent / 1024.0) * 1.35);
-		Radius = AutoSplatRadius(SplatScale * BaseVoxelRadius * RadScale, RadScale);
+		Radius = AutoSplatRadius(SplatScale * BaseVoxelRadius * RadScale, RadScale, Lod);
 		bLit = true;
 	}
 	else
@@ -222,7 +272,7 @@ bool BuildDisc(uint SplatIndex, out FSplatDisc Disc)
 		Normal = float3(R[0][K], R[1][K], R[2][K]);
 		float SMax = max(Scale.x, max(Scale.y, Scale.z));
 		float SMid = max(min(Scale.x, Scale.y), min(max(Scale.x, Scale.y), Scale.z));
-		Radius = AutoSplatRadius(2.0 * sqrt(SMax * SMid) * SplatScale, 1.0);
+		Radius = AutoSplatRadius(2.0 * sqrt(SMax * SMid) * SplatScale, 1.0, Lod);
 		bLit = false; // Baked radiance
 	}
 
@@ -238,31 +288,37 @@ bool BuildDisc(uint SplatIndex, out FSplatDisc Disc)
 		// SplatPak's two-sided key light; Lumen lighting through the GBuffer replaces it later
 		Disc.Color *= 0.35 + 0.65 * abs(dot(Normal, LightDirModel));
 	}
+	if ((StreamFlags & 2u) != 0 && Wave > 0.0 && Wave < 0.99)
+	{
+		ArrivalGlow(Disc.Color, Wave, Lod);
+	}
 	return true;
 }
 
-FSplatVSOut DiscCornerVertex(FSplatDisc Disc, uint Corner)
+FSplatPakVSOut DiscCornerVertex(FSplatPakDisc Disc, uint Corner, float BlendWeight)
 {
 	float2 CC = QuadCorners[Corner];
-	FSplatVSOut O;
+	FSplatPakVSOut O;
 	O.Position = mul(float4(Disc.Center + Disc.TangentX * CC.x + Disc.TangentY * CC.y, 1.0), ModelToClip);
 	O.UV = CC * 0.5 + 0.5;
 	O.Color = Disc.Color;
+	O.BlendWeight = BlendWeight;
 	return O;
 }
 
-FSplatVSOut CulledVertex()
+FSplatPakVSOut CulledVertex()
 {
-	FSplatVSOut O;
+	FSplatPakVSOut O;
 	O.Position = CulledClipPos;
 	O.UV = float2(0.0, 0.0);
 	O.Color = float3(0.0, 0.0, 0.0);
+	O.BlendWeight = 1.0;
 	return O;
 }
 
 // Conservative AABB-vs-frustum test. With Unreal's reversed, infinite-far depth the two z tests
 // swap roles (z > w is in front of the near plane, z < 0 never happens), and the test stays correct.
-bool MeshletInFrustum(FSplatMeshlet M)
+bool MeshletInFrustum(FSplatPakMeshlet M)
 {
 	float3 BMin = M.AabbMin;
 	float3 BMax = M.AabbMin + M.AabbExtents;
@@ -289,18 +345,54 @@ bool MeshletInFrustum(FSplatMeshlet M)
 	return OutL < 8 && OutR < 8 && OutB < 8 && OutT < 8 && OutN < 8 && OutF < 8;
 }
 
+// Whether the meshlet lies behind the occluder at every grid pixel its bounding box covers (grown by one
+// pixel, which absorbs the half pixel by which the raster's centre sampling can overreach a triangle's edge).
+// The bounds are first grown by OccMeshletPad: they hold the splat centres, and a disc reaches its radius
+// beyond its centre, towards the camera and sideways past the occluder's rim. Coarse levels draw large discs;
+// without the pad Venus at its coarsest level lost 0.6% of its pixels (at level 0, none).
+// Plain ifs throughout: older HLSL evaluates both sides of && and ?:.
+bool MeshletOccluded(FSplatPakMeshlet M)
+{
+	if (OcclusionCull == 0) return false;
+	float3 BMin = M.AabbMin - OccMeshletPad;
+	float3 BMax = M.AabbMin + M.AabbExtents + OccMeshletPad;
+	float NearW = 1e30;
+	float2 Lo = float2(1e30, 1e30), Hi = float2(-1e30, -1e30);
+	[unroll]
+	for (uint i = 0; i < 8; i++)
+	{
+		float3 P = OccProject(float3((i & 1) ? BMax.x : BMin.x, (i & 2) ? BMax.y : BMin.y, (i & 4) ? BMax.z : BMin.z));
+		if (P.z <= OccNearW) return false; // Reaches the near plane: never culled
+		NearW = min(NearW, P.z);
+		Lo = min(Lo, P.xy);
+		Hi = max(Hi, P.xy);
+	}
+	int X0 = max(0, (int)floor(Lo.x) - 1), Y0 = max(0, (int)floor(Lo.y) - 1);
+	int X1 = min((int)OccWidth - 1, (int)floor(Hi.x) + 1), Y1 = min((int)OccHeight - 1, (int)floor(Hi.y) + 1);
+	if (X1 < X0 || Y1 < Y0) return false;
+	if ((uint)((X1 - X0 + 1) * (Y1 - Y0 + 1)) > OCC_MAX_MESHLET_PIXELS) return false;
+	for (int Y = Y0; Y <= Y1; Y++)
+	{
+		for (int X = X0; X <= X1; X++)
+		{
+			if (asfloat(OccDepth[Y * OccWidth + X]) >= NearW) return false; // Something of the meshlet may show here
+		}
+	}
+	return true;
+}
+
 // ---------------------------------------------------------------------------------------------
 // Mesh shader path (default wherever Mesh Shader Tier 1 is available)
 // ---------------------------------------------------------------------------------------------
 
 #if SPLATS_MESH_SHADER
 
-struct FSplatPayload
+struct FSplatPakPayload
 {
 	uint MeshletIndices[AS_GROUP_SIZE];
 };
 
-groupshared FSplatPayload SharedPayload;
+groupshared FSplatPakPayload SharedPayload;
 groupshared uint SharedVisibleCount;
 
 [numthreads(AS_GROUP_SIZE, 1, 1)]
@@ -314,7 +406,17 @@ void MainAS(uint3 GroupId : SV_GroupID, uint ThreadId : SV_GroupThreadID)
 
 	// Groups past 65535 fold over y (see AddDiscPass).
 	uint MeshletIndex = (GroupId.y * 65535u + GroupId.x) * AS_GROUP_SIZE + ThreadId;
-	if (MeshletIndex < MeshletCount && MeshletInFrustum(Meshlets[MeshletIndex]))
+	bool bVisible = false;
+	if (MeshletIndex < MeshletCount)
+	{
+		FSplatPakMeshlet M = Meshlets[MeshletIndex];
+		if (MeshletInFrustum(M))
+		{
+			const bool bOccluded = MeshletOccluded(M);
+			bVisible = (OcclusionCull == 2) ? bOccluded : !bOccluded;
+		}
+	}
+	if (bVisible)
 	{
 		uint Slot;
 		InterlockedAdd(SharedVisibleCount, 1, Slot);
@@ -331,11 +433,11 @@ void MainAS(uint3 GroupId : SV_GroupID, uint ThreadId : SV_GroupThreadID)
 void MainMS(
 	uint3 GroupId : SV_GroupID,
 	uint ThreadId : SV_GroupThreadID,
-	in payload FSplatPayload Payload,
+	in payload FSplatPakPayload Payload,
 	out indices uint3 Tris[SPLATS_PER_GROUP * 2],
-	out vertices FSplatVSOut Verts[SPLATS_PER_GROUP * 4])
+	out vertices FSplatPakVSOut Verts[SPLATS_PER_GROUP * 4])
 {
-	FSplatMeshlet M = Meshlets[Payload.MeshletIndices[GroupId.x]];
+	FSplatPakMeshlet M = Meshlets[Payload.MeshletIndices[GroupId.x]];
 	uint Count = min((uint)SPLATS_PER_GROUP, M.SplatCount);
 
 	// Exactly one SetMeshOutputCounts per mesh shader (validator rule).
@@ -347,8 +449,8 @@ void MainMS(
 
 	uint VBase = ThreadId * 4;
 	uint PBase = ThreadId * 2;
-	FSplatDisc Disc;
-	if (!BuildDisc(M.SplatOffset + ThreadId, Disc))
+	FSplatPakDisc Disc;
+	if (!BuildDisc(M.SplatOffset + ThreadId, M.LodLevel, M.IsSilhouette, Disc))
 	{
 		// Degenerate triangles and zeroed vertices for a record that draws nothing.
 		Tris[PBase + 0] = uint3(0, 0, 0);
@@ -356,7 +458,7 @@ void MainMS(
 		[unroll]
 		for (uint Z = 0; Z < 4; Z++)
 		{
-			FSplatVSOut O = CulledVertex();
+			FSplatPakVSOut O = CulledVertex();
 			O.Position = float4(0.0, 0.0, 0.0, 0.0);
 			Verts[VBase + Z] = O;
 		}
@@ -366,7 +468,7 @@ void MainMS(
 	[unroll]
 	for (uint C = 0; C < 4; C++)
 	{
-		Verts[VBase + C] = DiscCornerVertex(Disc, C);
+		Verts[VBase + C] = DiscCornerVertex(Disc, C, M.BlendWeight);
 	}
 	Tris[PBase + 0] = uint3(VBase + 0, VBase + 1, VBase + 2);
 	Tris[PBase + 1] = uint3(VBase + 1, VBase + 3, VBase + 2);
@@ -378,7 +480,7 @@ void MainMS(
 // Vertex shader fallback: DrawPrimitive(0, 2, MeshletCount * 64), one instance per splat slot
 // ---------------------------------------------------------------------------------------------
 
-void MainVS(uint VertexId : SV_VertexID, uint InstanceId : SV_InstanceID, out FSplatVSOut Out)
+void MainVS(uint VertexId : SV_VertexID, uint InstanceId : SV_InstanceID, out FSplatPakVSOut Out)
 {
 	uint MeshletIndex = InstanceId / SPLATS_PER_GROUP;
 	uint Local = InstanceId - MeshletIndex * SPLATS_PER_GROUP;
@@ -387,15 +489,15 @@ void MainVS(uint VertexId : SV_VertexID, uint InstanceId : SV_InstanceID, out FS
 	{
 		return;
 	}
-	FSplatMeshlet M = Meshlets[MeshletIndex];
+	FSplatPakMeshlet M = Meshlets[MeshletIndex];
 	if (Local >= M.SplatCount)
 	{
 		return;
 	}
-	FSplatDisc Disc;
-	if (BuildDisc(M.SplatOffset + Local, Disc))
+	FSplatPakDisc Disc;
+	if (BuildDisc(M.SplatOffset + Local, M.LodLevel, M.IsSilhouette, Disc))
 	{
-		Out = DiscCornerVertex(Disc, QuadVertexCorner[VertexId % 6]);
+		Out = DiscCornerVertex(Disc, QuadVertexCorner[VertexId % 6], M.BlendWeight);
 	}
 }
 
@@ -403,12 +505,40 @@ void MainVS(uint VertexId : SV_VertexID, uint InstanceId : SV_InstanceID, out FS
 // Pixel shader: hard-edged opaque disc into Unreal's linear, pre-exposed scene colour
 // ---------------------------------------------------------------------------------------------
 
-void MainPS(FSplatVSOut In, out float4 OutColor : SV_Target0)
+// SplatPak's 8x8 Bayer matrix (Splat.hlsl GetBayer8x8), for the complementary cross-dissolve between levels
+float Bayer8x8(uint2 Pixel)
+{
+	static const float Bayer[64] = {
+		 1.0, 49.0, 13.0, 61.0,  4.0, 52.0, 16.0, 64.0,
+		33.0, 17.0, 45.0, 29.0, 36.0, 20.0, 48.0, 32.0,
+		 9.0, 57.0,  5.0, 53.0, 12.0, 60.0,  8.0, 56.0,
+		41.0, 25.0, 37.0, 21.0, 44.0, 28.0, 40.0, 24.0,
+		 3.0, 51.0, 15.0, 63.0,  2.0, 50.0, 14.0, 62.0,
+		35.0, 19.0, 47.0, 31.0, 34.0, 18.0, 46.0, 30.0,
+		11.0, 59.0,  7.0, 55.0, 10.0, 58.0,  6.0, 54.0,
+		43.0, 27.0, 39.0, 23.0, 42.0, 26.0, 38.0, 22.0 };
+	return Bayer[(Pixel.y & 7u) * 8u + (Pixel.x & 7u)] / 64.0;
+}
+
+void MainPS(FSplatPakVSOut In, out float4 OutColor : SV_Target0)
 {
 	float2 Centered = In.UV * 2.0 - 1.0;
 	if (dot(Centered, Centered) > 1.0)
 	{
 		discard;
+	}
+	// A block mid cross-fade: children fading in (+t) keep the pixels below t, the parent fading out (-t) the rest
+	if ((StreamFlags & 1u) != 0 && abs(In.BlendWeight) < 0.999)
+	{
+		const float Threshold = Bayer8x8((uint2)In.Position.xy);
+		if (In.BlendWeight >= 0.0)
+		{
+			if (Threshold >= In.BlendWeight) discard;
+		}
+		else
+		{
+			if (Threshold < -In.BlendWeight) discard;
+		}
 	}
 	OutColor = float4(SRGBToLinearColor(In.Color) * EmissiveIntensity * PreExposure, 1.0);
 }

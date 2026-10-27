@@ -1,8 +1,8 @@
-// SplatViewExtension.cpp
+// SplatPakViewExtension.cpp
 
-#include "SplatViewExtension.h"
+#include "SplatPakViewExtension.h"
 
-#include "SplatDrawable.h"
+#include "SplatPakDrawable.h"
 #include "RenderGraphBuilder.h"
 #include "SceneRendering.h"
 #include "SceneRenderTargetParameters.h"
@@ -13,9 +13,9 @@
 #include "PostProcess/PostProcessing.h"
 #endif
 
-void FSplatViewExtension::PrePostProcessPass_RenderThread(FRDGBuilder& GraphBuilder, const FSceneView& View, const FPostProcessingInputs& Inputs)
+void FSplatPakViewExtension::PrePostProcessPass_RenderThread(FRDGBuilder& GraphBuilder, const FSceneView& View, const FPostProcessingInputs& Inputs)
 {
-	const TArray<FSplatDrawable*>& Drawables = FSplatDrawable::GetRegisteredDrawables();
+	const TArray<FSplatPakDrawable*>& Drawables = FSplatPakDrawable::GetRegisteredDrawables();
 	if (Drawables.IsEmpty() || !View.bIsViewInfo)
 	{
 		return;
@@ -31,7 +31,7 @@ void FSplatViewExtension::PrePostProcessPass_RenderThread(FRDGBuilder& GraphBuil
 	}
 
 	RDG_EVENT_SCOPE(GraphBuilder, "SplatPak");
-	for (const FSplatDrawable* Drawable : Drawables)
+	for (const FSplatPakDrawable* Drawable : Drawables)
 	{
 		if (Drawable->IsVisibleInView(View))
 		{

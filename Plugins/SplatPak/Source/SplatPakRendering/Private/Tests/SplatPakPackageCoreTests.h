@@ -1,6 +1,6 @@
-// SplatPackageCoreTests.h
+// SplatPakPackageCoreTests.h
 // Engine-independent tests of SplatPackageCore, shared by the Unreal automation test
-// (SplatPackageTests.cpp) and the native harness. Each returns true on success and appends
+// (SplatPakPackageTests.cpp) and the native harness. Each returns true on success and appends
 // one line per failed check to OutFailures.
 
 #pragma once

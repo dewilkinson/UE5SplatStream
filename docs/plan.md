@@ -23,7 +23,7 @@ been built against Unreal), *Done* (built, tested, and seen working in the engin
 
 **Status:** Renders on UE 5.8.4: both record formats, depth occlusion against scene meshes, fallback path on hardware, mesh path verified on WARP.
 
-- `.sflw` import into a `USplatAsset` (D8); `USplatComponent` / `ASplatActor`; scene proxy.
+- `.sflw` import into a `USplatPakAsset` (D8); `USplatPakComponent` / `ASplatPakActor`; scene proxy.
 - One level resident (coarsest by default), split into 64-splat meshlets.
 - Opaque discs after lighting, depth-tested and depth-writing (D10, interim).
 - Mesh-shader path by default with the vertex fallback (D5); amplification-shader frustum culling.

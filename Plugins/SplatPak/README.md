@@ -4,12 +4,23 @@ Renders `.gstx` packages (compressed 3D Gaussian splat scans; older `.sflw` pack
 A port of the DX12 renderer in [splatpak](https://github.com/dewilkinson/splatpak), following the
 design record in [docs/](../../docs/README.md): decisions, plan and journal.
 
-## Status: step 1 (opaque discs, one resident level)
+## Status: opaque discs, streaming
 
 - Import a `.gstx` by dragging it into the Content Browser (format v4 to v12; older `.sflw` packages too).
-- Place a **Splat Actor**, or add a **Splat Component** to any actor, and assign the asset.
-- One level stays resident (`Resident Level`, -1 = coarsest). It's decoded once and shared by
+- Place a **SplatPak Actor**, or add a **SplatPak Component** to any actor, and assign the asset.
+- **Streaming** (on by default, the component's **Streaming** category): the model streams the way SplatPak streams it.
+  The codec library's streaming runtime decides, under a simulated bandwidth, which blocks of which levels are
+  resident, follows the camera (the active level viewport in the editor, the player's camera in a game), and hands back
+  the render list each frame: per-block levels, dithered cross-fades between levels, **Release Unused LOD Segments**,
+  the **Conservative** or **Greedy** policy, and the **Refinement Visualizer**'s arrival glow in each level's colour.
+  **Evict** (a Details button, and Blueprint-callable) drops everything but the two coarsest levels so the model streams
+  in again; `Restream`, `GetLevelResidency`, `GetStreamProgress` and `GetStreamStats` drive a HUD. As in SplatPak the
+  network is simulated: every level is decoded into memory when the model starts streaming, on worker threads, which
+  takes a few seconds for a large scan (the resident level is drawn meanwhile).
+- With streaming off, one level stays resident (`Resident Level`, -1 = coarsest). It's decoded once and shared by
   every component that shows it.
+- The classes were renamed with the SplatPak prefix (`USplatPakAsset`, `USplatPakComponent`, `ASplatPakActor`);
+  `Config/DefaultSplatPak.ini` redirects the old names, so existing assets and levels load.
 - Discs are drawn opaque after lighting and before TSR. They are depth-tested against the scene
   and write depth, so Nanite meshes and splats occlude each other and TSR reprojects them.
 - **Mesh shaders are the default** (`r.SplatPak.MeshShaders 1`): an amplification shader frustum-
@@ -29,11 +40,11 @@ design record in [docs/](../../docs/README.md): decisions, plan and journal.
 | Module | Loads | Contents |
 |---|---|---|
 | `SplatPakRendering` | PostConfigInit | Shaders, the disc pass, the view extension, the `.gstx` format core. No UObjects (global shaders must register before the shader map is built). |
-| `SplatPak` | Default | `USplatAsset`, `USplatComponent`, `ASplatActor`, the scene proxy. |
+| `SplatPak` | Default | `USplatPakAsset`, `USplatPakComponent`, `ASplatPakActor`, the scene proxy. |
 | `SplatPakEditor` | Editor | `.gstx` import factory. |
 | `GSTx` | External | The proprietary codec as a prebuilt static library. |
 
-`Source/SplatPakRendering/Public/SplatPackageCore.h` is plain C++17, so the format code and its
+`Source/SplatPakRendering/Public/SplatPakPackageCore.h` is plain C++17, so the format code and its
 tests also build and run outside Unreal (see Testing).
 
 ## Building
@@ -93,9 +104,9 @@ Still to confirm at runtime: that `SplatPakRendering` loading at `PostConfigInit
 - **No per-splat shadow casting** (the shadow mesh stands in; true splat shadows need a depth pass per light). The splats
   do not receive shadows yet either; when they do, a depth bias will keep the shadow mesh, which lies on the visible
   surface, from shadowing its own splats.
-- **No streaming yet:** a whole level is decoded synchronously when the proxy is created (step 4).
-- **No normal-cone culling, dithered cross-fades, spherical harmonics or sorted Gaussians yet**
-  (steps 2 to 4).
+- **Simulated network:** streaming decodes every level into memory first (the package size in records, about 400 MB
+  for Cthulhu); real reads from disk come with the runtime's read phase.
+- **No normal-cone culling, spherical harmonics or sorted Gaussians yet** (steps 2 to 4).
 - **Editor picking:** clicking the discs doesn't select the actor; select it in the Outliner.
 
 ## Open question about SplatPak itself

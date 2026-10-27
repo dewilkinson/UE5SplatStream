@@ -8,6 +8,12 @@ public class SplatPak : ModuleRules
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 
 		PublicDependencyModuleNames.AddRange(new string[] { "Core", "CoreUObject", "Engine", "PhysicsCore" });
-		PrivateDependencyModuleNames.AddRange(new string[] { "RenderCore", "RHI", "SplatPakRendering" });
+		PrivateDependencyModuleNames.AddRange(new string[] { "RenderCore", "RHI", "SplatPakRendering", "GSTx" }); // GSTx: the streaming runtime
+
+		// The editor follows the active level viewport (USplatPakComponent::FindView)
+		if (Target.bBuildEditor)
+		{
+			PrivateDependencyModuleNames.Add("UnrealEd");
+		}
 	}
 }

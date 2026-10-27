@@ -1,0 +1,56 @@
+// SplatPakOcclusion.usf
+// Rasterises the package's occluder mesh into the occlusion grid the disc pass culls meshlets against
+// (see SplatPakOcclusion.ush). The grid is cleared to OCC_EMPTY before this pass (AddClearUAVPass).
+
+#include "/Engine/Private/Common.ush"
+
+StructuredBuffer<float> OccluderPositions; // Three floats per vertex, model space
+StructuredBuffer<uint>  OccluderIndices;   // Triangle list
+RWStructuredBuffer<uint> RWOccDepth;       // Per grid pixel: nearest occluder depth as float bits
+float4x4 ModelToClip;
+uint     OccWidth;
+uint     OccHeight;
+uint     OccTriCount;
+float    OccNearW; // The view's near-plane distance: a triangle reaching nearer is skipped
+
+#include "/Plugin/SplatPak/Private/SplatPakOcclusion.ush"
+
+float3 OccVertex(uint Index)
+{
+	return float3(OccluderPositions[Index * 3 + 0], OccluderPositions[Index * 3 + 1], OccluderPositions[Index * 3 + 2]);
+}
+
+float OccEdge(float2 A, float2 B, float2 P) { return (B.x - A.x) * (P.y - A.y) - (B.y - A.y) * (P.x - A.x); }
+
+// One thread per triangle: writes the triangle's farthest depth into every grid pixel whose centre it
+// covers, keeping the nearest per pixel.
+[numthreads(64, 1, 1)]
+void OccRasterCS(uint3 Id : SV_DispatchThreadID)
+{
+	if (Id.x >= OccTriCount) return;
+	float3 A = OccProject(OccVertex(OccluderIndices[Id.x * 3 + 0]));
+	float3 B = OccProject(OccVertex(OccluderIndices[Id.x * 3 + 1]));
+	float3 C = OccProject(OccVertex(OccluderIndices[Id.x * 3 + 2]));
+	if (min(A.z, min(B.z, C.z)) <= OccNearW) return;
+	float Area = OccEdge(A.xy, B.xy, C.xy);
+	if (abs(Area) < 1e-8) return;
+	if (Area < 0.0) { float3 S = B; B = C; C = S; } // Either winding
+	int X0 = max(0, (int)floor(min(A.x, min(B.x, C.x))));
+	int Y0 = max(0, (int)floor(min(A.y, min(B.y, C.y))));
+	int X1 = min((int)OccWidth - 1, (int)floor(max(A.x, max(B.x, C.x))));
+	int Y1 = min((int)OccHeight - 1, (int)floor(max(A.y, max(B.y, C.y))));
+	if (X1 < X0 || Y1 < Y0 || (uint)((X1 - X0 + 1) * (Y1 - Y0 + 1)) > OCC_MAX_TRI_PIXELS) return;
+	uint DepthBits = asuint(max(A.z, max(B.z, C.z))); // Positive floats order like their bits
+	for (int Y = Y0; Y <= Y1; Y++)
+	{
+		for (int X = X0; X <= X1; X++)
+		{
+			float2 P = float2(X + 0.5, Y + 0.5);
+			if (OccEdge(A.xy, B.xy, P) >= 0.0 && OccEdge(B.xy, C.xy, P) >= 0.0 && OccEdge(C.xy, A.xy, P) >= 0.0)
+			{
+				uint Prev;
+				InterlockedMin(RWOccDepth[Y * OccWidth + X], DepthBits, Prev);
+			}
+		}
+	}
+}

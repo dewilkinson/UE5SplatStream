@@ -1,17 +1,17 @@
-// SplatPackageTests.cpp
+// SplatPakPackageTests.cpp
 // Unreal automation tests for the package format core (.gstx). Run with Scripts/Test.ps1 -Filter SplatPak.
 
 #include "Misc/AutomationTest.h"
 #include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
-#include "SplatPackageCoreTests.h"
+#include "SplatPakPackageCoreTests.h"
 
 #if WITH_DEV_AUTOMATION_TESTS
 
-IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSplatPackageSyntheticTest, "SplatPak.Package.Synthetic",
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(FSplatPakPackageSyntheticTest, "SplatPak.Package.Synthetic",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::ClientContext | EAutomationTestFlags::EngineFilter)
 
-bool FSplatPackageSyntheticTest::RunTest(const FString& Parameters)
+bool FSplatPakPackageSyntheticTest::RunTest(const FString& Parameters)
 {
 	std::vector<std::string> Failures;
 	SplatCoreTests::RunSyntheticPackageTests(Failures);
@@ -23,10 +23,10 @@ bool FSplatPackageSyntheticTest::RunTest(const FString& Parameters)
 }
 
 // Real scans from the 3DGSStream repo, when it's checked out next to this project (or SPLATPAK_REPO is set).
-IMPLEMENT_COMPLEX_AUTOMATION_TEST(FSplatPackageSampleTest, "SplatPak.Package.Samples",
+IMPLEMENT_COMPLEX_AUTOMATION_TEST(FSplatPakPackageSampleTest, "SplatPak.Package.Samples",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
 
-void FSplatPackageSampleTest::GetTests(TArray<FString>& OutBeautifiedNames, TArray<FString>& OutTestCommands) const
+void FSplatPakPackageSampleTest::GetTests(TArray<FString>& OutBeautifiedNames, TArray<FString>& OutTestCommands) const
 {
 	FString Repo = FPlatformMisc::GetEnvironmentVariable(TEXT("SPLATPAK_REPO"));
 	if (Repo.IsEmpty())
@@ -42,7 +42,7 @@ void FSplatPackageSampleTest::GetTests(TArray<FString>& OutBeautifiedNames, TArr
 	}
 }
 
-bool FSplatPackageSampleTest::RunTest(const FString& File)
+bool FSplatPakPackageSampleTest::RunTest(const FString& File)
 {
 	TArray64<uint8> Bytes;
 	if (!FFileHelper::LoadFileToArray(Bytes, *File))

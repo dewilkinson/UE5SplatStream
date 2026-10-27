@@ -6,7 +6,7 @@
 #include "Modules/ModuleManager.h"
 #include "SceneViewExtension.h"
 #include "ShaderCore.h"
-#include "SplatViewExtension.h"
+#include "SplatPakViewExtension.h"
 
 class FSplatPakRenderingModule : public IModuleInterface
 {
@@ -20,7 +20,7 @@ public:
 		// View extensions need the engine's renderer, which exists only once the engine is up.
 		PostEngineInitHandle = FCoreDelegates::GetOnPostEngineInit().AddLambda([this]()
 		{
-			ViewExtension = FSceneViewExtensions::NewExtension<FSplatViewExtension>();
+			ViewExtension = FSceneViewExtensions::NewExtension<FSplatPakViewExtension>();
 		});
 	}
 
@@ -31,7 +31,7 @@ public:
 	}
 
 private:
-	TSharedPtr<FSplatViewExtension, ESPMode::ThreadSafe> ViewExtension;
+	TSharedPtr<FSplatPakViewExtension, ESPMode::ThreadSafe> ViewExtension;
 	FDelegateHandle PostEngineInitHandle;
 };
 
