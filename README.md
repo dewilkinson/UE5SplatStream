@@ -85,6 +85,6 @@ the coffee table and the Cthulhu statue on the mantel. Everything in it is free 
   `-Samples <path to its assets folder>`.
 
 The built level is not committed (about 200 MB of imported assets); the script rebuilds it in a few
-minutes and always matches the current plugin. `.\Scripts\OpenDemo.ps1 -Map /Game/LivingRoom/Map_LivingRoom`
+minutes and always matches the current plugin. `.\Scripts\OpenDemo.ps1 -Project PluginSandbox.uproject -Map /Game/LivingRoom/Map_LivingRoom`
 opens it in the editor. Without `-Sandbox` the script builds into a project beside this repository
 (see `Scripts/FindDemoProject.ps1`) under `/Game/Demo`.
