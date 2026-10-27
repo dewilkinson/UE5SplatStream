@@ -1,5 +1,5 @@
 # BuildLivingRoom.py
-# Builds /Game/Demo/Map_LivingRoom: a furnished room of Nanite meshes (Poly Haven CC0 models fetched by
+# Builds <ROOT>/Map_LivingRoom (ROOT: /Game/Demo, or ROOM_CONTENT_ROOT): a furnished room of Nanite meshes (Poly Haven CC0 models fetched by
 # FetchRoomAssets.ps1) with a splat scan standing on the coffee table. Imports each model as one
 # combined Nanite static mesh, saves the level, captures a preview from the demo camera to
 # Saved/RenderCheck/living_room.png, then quits. Run through BuildLivingRoom.ps1.
@@ -17,8 +17,10 @@ SPLAT = os.environ.get("ROOM_SPLAT", "dwarves")
 REIMPORT = os.environ.get("ROOM_REIMPORT", "0") == "1"  # Import the samples again over existing assets (a new package format)
 SPLAT_HEIGHT_CM = float(os.environ.get("ROOM_SPLAT_HEIGHT", "35"))
 SPLAT_EMISSIVE = float(os.environ.get("ROOM_SPLAT_EMISSIVE", "1"))
-MAP = "/Game/Demo/Map_LivingRoom"
-PIPELINE = "/Game/Demo/Pipelines/GLTFCombinedAssetsPipeline"
+# The content folder: /Game/Demo in the private demo project, /Game/LivingRoom in PluginSandbox (committed there).
+ROOT = os.environ.get("ROOM_CONTENT_ROOT", "/Game/Demo")
+MAP = ROOT + "/Map_LivingRoom"
+PIPELINE = ROOT + "/Pipelines/GLTFCombinedAssetsPipeline"
 FLAMES = os.environ.get("ROOM_FLAMES", "/Game/ExampleContent/Blueprint_Communication/Effects/P_Flames")
 
 # (model, x, y, yaw) in centimetres on the floor; +X is away from the camera, +Y to its right.
@@ -68,7 +70,7 @@ def combined_pipeline():
 
 
 def import_model(model, pipelines):
-    folder = "/Game/Demo/Furniture/" + model
+    folder = ROOT + "/Furniture/" + model
     existing = [a for a in assets.list_assets(folder, recursive=True) if unreal.load_asset(a).__class__ == unreal.StaticMesh] if assets.does_directory_exist(folder) else []
     if not existing:
         source = unreal.InterchangeManager.create_source_data(os.path.join(MODELS_DIR, model, model + ".gltf").replace("\\", "/"))
@@ -94,7 +96,7 @@ def import_model(model, pipelines):
 
 
 def import_texture(path, normal):
-    folder = "/Game/Demo/Textures"
+    folder = ROOT + "/Textures"
     name = os.path.splitext(os.path.basename(path))[0]
     if not assets.does_asset_exist(folder + "/" + name):
         task = unreal.AssetImportTask()
@@ -116,12 +118,12 @@ def import_texture(path, normal):
 def textured_material(name, texture_id, tiling, roughness_scale=1.0):
     # Colour, DirectX normal and roughness maps from a Poly Haven texture, tiled `tiling` times per face.
     # roughness_scale multiplies the roughness map (above 1 dulls a glossy surface).
-    path = "/Game/Demo/Materials/" + name
+    path = ROOT + "/Materials/" + name
     if assets.does_asset_exist(path):
         return unreal.load_asset(path)
     base = os.path.join(MODELS_DIR, "textures", texture_id, texture_id)
     mel = unreal.MaterialEditingLibrary
-    material = unreal.AssetToolsHelpers.get_asset_tools().create_asset(name, "/Game/Demo/Materials", unreal.Material, unreal.MaterialFactoryNew())
+    material = unreal.AssetToolsHelpers.get_asset_tools().create_asset(name, ROOT + "/Materials", unreal.Material, unreal.MaterialFactoryNew())
     uv = mel.create_material_expression(material, unreal.MaterialExpressionTextureCoordinate, -900, 200)
     uv.set_editor_property("u_tiling", tiling)
     uv.set_editor_property("v_tiling", tiling)
@@ -146,11 +148,11 @@ def textured_material(name, texture_id, tiling, roughness_scale=1.0):
 
 
 def flat_material(name, rgb, roughness):
-    path = "/Game/Demo/Materials/" + name
+    path = ROOT + "/Materials/" + name
     if assets.does_asset_exist(path):
         return unreal.load_asset(path)
     mel = unreal.MaterialEditingLibrary
-    material = unreal.AssetToolsHelpers.get_asset_tools().create_asset(name, "/Game/Demo/Materials", unreal.Material, unreal.MaterialFactoryNew())
+    material = unreal.AssetToolsHelpers.get_asset_tools().create_asset(name, ROOT + "/Materials", unreal.Material, unreal.MaterialFactoryNew())
     color = mel.create_material_expression(material, unreal.MaterialExpressionConstant3Vector, -400, 0)
     color.set_editor_property("constant", unreal.LinearColor(rgb[0], rgb[1], rgb[2], 1.0))
     mel.connect_material_property(color, "", unreal.MaterialProperty.MP_BASE_COLOR)
@@ -164,11 +166,11 @@ def flat_material(name, rgb, roughness):
 
 def emissive_material(name, rgb, strength):
     # A glowing surface (the fireplace embers). Lumen treats emissive surfaces as light sources.
-    path = "/Game/Demo/Materials/" + name
+    path = ROOT + "/Materials/" + name
     if assets.does_asset_exist(path):
         return unreal.load_asset(path)
     mel = unreal.MaterialEditingLibrary
-    material = unreal.AssetToolsHelpers.get_asset_tools().create_asset(name, "/Game/Demo/Materials", unreal.Material, unreal.MaterialFactoryNew())
+    material = unreal.AssetToolsHelpers.get_asset_tools().create_asset(name, ROOT + "/Materials", unreal.Material, unreal.MaterialFactoryNew())
     color = mel.create_material_expression(material, unreal.MaterialExpressionConstant3Vector, -400, 0)
     color.set_editor_property("constant", unreal.LinearColor(rgb[0] * strength, rgb[1] * strength, rgb[2] * strength, 1.0))
     mel.connect_material_property(color, "", unreal.MaterialProperty.MP_EMISSIVE_COLOR)
@@ -242,10 +244,10 @@ def build_fireplace(center_x, wall_y, brick, plaster):
 
 def place_splat(name, on_actor, height_cm, level, emissive, offset=(0.0, 0.0)):
     # Imports a sample scan if needed (or always, with REIMPORT), scales it to height_cm and stands it on top of on_actor.
-    if REIMPORT or not assets.does_asset_exist("/Game/Demo/" + name):
+    if REIMPORT or not assets.does_asset_exist(ROOT + "/" + name):
         task = unreal.AssetImportTask()
         task.filename = os.path.join(SAMPLES_DIR, name, name + ".gstx").replace("\\", "/")
-        task.destination_path = "/Game/Demo"
+        task.destination_path = ROOT
         task.automated = True
         task.replace_existing = True
         task.save = True
@@ -256,7 +258,7 @@ def place_splat(name, on_actor, height_cm, level, emissive, offset=(0.0, 0.0)):
     splat.set_actor_label("Splat_" + name)
     component = splat.get_editor_property("splat_pak_component")
     component.set_editor_property("resident_level", level)
-    component.set_splat_pak_asset(unreal.load_asset("/Game/Demo/" + name))
+    component.set_splat_pak_asset(unreal.load_asset(ROOT + "/" + name))
     component.set_emissive_intensity(emissive)
     _, extent = splat.get_actor_bounds(False)
     splat.set_actor_scale3d(unreal.Vector(1, 1, 1) * (height_cm / (2.0 * extent.z)))

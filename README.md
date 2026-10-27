@@ -70,6 +70,21 @@ repository. It does not cover the GSTx codec library, which has its own terms.
 
 ## Demo scene
 
-`.\Scripts\BuildLivingRoom.ps1` builds a furnished room of Nanite meshes (free CC0 models from
-[Poly Haven](https://polyhaven.com), downloaded on first run) with a splat scan standing on the coffee
-table. `.\Scripts\OpenDemo.ps1 -Map /Game/Demo/Map_LivingRoom` opens it in the editor.
+![The living room: a brick fireplace, lounge chair, sofa and coffee table as Nanite meshes, with the dwarves scan on the table and the Cthulhu statue on the mantel](docs/living-room.png)
+
+`.\Scripts\BuildLivingRoom.ps1 -Sandbox` builds a furnished living room into this repository's
+PluginSandbox project (`/Game/LivingRoom/Map_LivingRoom`): a brick fireplace with glowing embers, a
+lounge chair, sofa, coffee table, shelves and lamps as Nanite meshes, with the dwarves scan standing on
+the coffee table and the Cthulhu statue on the mantel. Everything in it is free to use:
+
+- The furniture and textures are CC0 models from [Poly Haven](https://polyhaven.com), downloaded into
+  `ThirdPartyAssets/` on first run.
+- The splat scans are the CC BY 4.0 sample packages bundled with
+  [splatpak](https://github.com/dewilkinson/splatpak) (`assets/dwarves`, `assets/cthulu`; their
+  `LICENSE.txt` files credit the authors). Clone splatpak beside this repository, or pass
+  `-Samples <path to its assets folder>`.
+
+The built level is not committed (about 200 MB of imported assets); the script rebuilds it in a few
+minutes and always matches the current plugin. `.\Scripts\OpenDemo.ps1 -Map /Game/LivingRoom/Map_LivingRoom`
+opens it in the editor. Without `-Sandbox` the script builds into a project beside this repository
+(see `Scripts/FindDemoProject.ps1`) under `/Game/Demo`.
