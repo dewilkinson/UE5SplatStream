@@ -267,3 +267,15 @@ Problems found and fixed on the way (all in the demo scripts, not the plugin):
 - Offline scene captures don't draw the shape components' wireframes (even with the Collision show flag), and new
   materials can still be compiling when they run (default checker on the plinths); the volumes are checked in the
   editor viewport instead.
+
+### Rendering tab, pass isolation, loupe; palace stairs (2026-10-28)
+
+- The palace's stair volumes were a guess; measured from the scan (package frame = PLY rotated 180 degrees about X) the
+  centre flight runs 11.1 m at 15.4 degrees between balustrades at x = +/-1.5 m. Ray casts on the new volumes match the
+  scan within 1 cm.
+- User asked for Slate UI for rendering toggles and pass visualizers, and an inset like the app's loupe. Built as the
+  SplatPak Rendering tab (Tools menu), `r.SplatPak.Pass.*` console variables, and `SSplatPakLoupe` (a scene capture along
+  the cursor's ray into a 320x220 inset). The app's splat-outline / random-colour / centre loupe views need shader modes
+  and are not ported yet.
+- Found: in the editor viewport the splats never start streaming (no "preparing to stream" in any editor session, though
+  the components tick); in play in editor the palace streams in 1.4 s. Still to fix.
