@@ -232,3 +232,19 @@ Problems found and fixed on the way (all in the demo scripts, not the plugin):
 - The fireplace was rebuilt as a settled fire: soot-black firebox, three charred logs, scattered
   embers in two strengths and a lower, dimmer fire light at the opening, instead of an evenly glowing
   firebox that read as a furnace.
+
+### Lit mode, first step (2026-10-28)
+
+- The user asked how to add basic lighting to a splat asset, and chose the G-buffer route: the opaque discs written into
+  Unreal's GBuffer right after the base pass, so its own lights, shadows and Lumen shade them, rather than a separate
+  splat framebuffer composited later.
+- Done in `PostRenderBasePassDeferred_RenderThread`: scene colour plus GBufferA-C through the engine's `EncodeGBuffer`
+  (default lit; precomputed shadow and velocity skipped), with its own depth-write binding, because after a full depth
+  prepass the base pass binds depth read-only. Slots 1-3 are GBufferA-C in every non-Substrate layout; under Substrate
+  or forward shading the scan stays unlit.
+- Normals: a point record's stored oct16 normal, a splat's shortest axis, turned to face the camera.
+- The stored colour is baked light, so **Lit Blend** splits it between emissive and albedo; specular is scaled by it
+  too, so Lit Blend 0 matches the unlit discs exactly (checked by capture).
+- Lit mode draws discs only, without the gap fill. Next steps: smoother normals (from the shadow mesh), lit Gaussians
+  through a deferred pass of their own, and a de-lit albedo from the baker.
+- Test case: the demo's `Map_LitDemo` (BP_Cthulhu beside BP_Cthulhu_Lit; `Scripts\BuildLitDemo.ps1 -Check`).
