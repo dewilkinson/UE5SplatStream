@@ -168,6 +168,31 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "SplatPak")
 	void SetEmissiveIntensity(float NewIntensity);
 
+	// Lights the scan with Unreal's lights: the discs go into the GBuffer after the base pass, with each disc's normal (a
+	// point record's stored normal, a splat's shortest axis), so directional, point and spot lights, their shadows (virtual
+	// shadow maps included) and Lumen shade them. Always draws discs, never Gaussians, and without the gap fill. Needs the
+	// deferred renderer without Substrate; otherwise the scan draws unlit as before.
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "SplatPak|Lighting")
+	bool bLit = false;
+
+	// The stored colour is baked light, so it is split: 0 keeps all of it emissive (the unlit look), 1 makes all of it the
+	// albedo Unreal's lights shade. In between mixes the two, which hides how far the baked light differs from the scene's.
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "SplatPak|Lighting", meta = (ClampMin = "0.0", ClampMax = "1.0", EditCondition = "bLit"))
+	float LitBlend = 1.0f;
+
+	// The baked colour times this is the albedo (the stored colours already carry the capture's light).
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "SplatPak|Lighting", meta = (ClampMin = "0.0", UIMax = "4.0", EditCondition = "bLit"))
+	float AlbedoScale = 1.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "SplatPak|Lighting", meta = (ClampMin = "0.0", ClampMax = "1.0", EditCondition = "bLit"))
+	float LitRoughness = 0.8f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "SplatPak|Lighting", meta = (ClampMin = "0.0", ClampMax = "1.0", EditCondition = "bLit"))
+	float LitSpecular = 0.5f;
+
+	UFUNCTION(BlueprintCallable, Category = "SplatPak|Lighting")
+	void SetLighting(bool bNewLit, float NewLitBlend, float NewAlbedoScale, float NewRoughness, float NewSpecular);
+
 	// The package's shadow mesh (USplatPakAsset::ShadowMesh), placed hidden: it casts the model's shadow from every light
 	// type, virtual shadow maps included. Packages without one (format 11 or older) cast no shadow.
 	// Draws the shadow mesh behind the splats in their colours, over the occluder mesh, so the gaps between sparse splats
@@ -219,6 +244,7 @@ private:
 	void StopStream();
 	bool FindView(FVector& OutLocation, FRotator& OutRotation, float& OutFovYRadians, float& OutAspect, int32& OutHeightPixels) const;
 	void PushStreamSettings() const;          // The draw settings that change without a new proxy
+	void PushLightingSettings() const;        // Lit mode and its material values, also without a new proxy
 
 	TSharedPtr<const FSplatPakStreamLevels, ESPMode::ThreadSafe> StreamLevels;
 	TSharedPtr<const FSplatPakStreamSource, ESPMode::ThreadSafe> StreamSource; // The runtime's records, for the proxy

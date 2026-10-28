@@ -38,6 +38,13 @@ struct FSplatPakDrawSettings
 	// Streaming only: draw as sorted 3D Gaussians, alpha-blended back to front (as SplatPak draws a splat package); off,
 	// as opaque discs
 	bool  bGaussians = true;
+	// Lit mode: the discs are written into Unreal's GBuffer after the base pass, so its lights, shadows and Lumen shade
+	// them. Always discs (never Gaussians), without the gap fill; deferred shading without Substrate only, else unlit.
+	bool  bLit = false;
+	float LitBlend = 1.0f;      // 0 = the baked colour as emissive (the unlit look), 1 = the colour as albedo, fully lit
+	float LitRoughness = 0.8f;
+	float LitSpecular = 0.5f;
+	float AlbedoScale = 1.0f;   // The baked colour times this is the albedo
 };
 
 // Streaming (USplatPakComponent with streaming on): every level's records in the streaming runtime's order, uploaded once,
@@ -69,12 +76,24 @@ public:
 	// Render thread: the opaque disc pass, depth-tested and depth-writing against the scene.
 	void AddDiscPass(FRDGBuilder& GraphBuilder, const FViewInfo& View, FRDGTextureRef SceneColor, FRDGTextureRef SceneDepth) const;
 
+	// Render thread: whether this drawable draws lit in the view (lit mode on, deferred shading, no Substrate). A lit
+	// drawable draws with AddDiscGBufferPass after the base pass instead of AddDiscPass.
+	bool DrawsLit(const FSceneView& View) const;
+
+	// Render thread: lit mode. The discs into the base pass's scene colour and GBufferA-C (BasePassTargets), depth-tested
+	// and depth-writing.
+	void AddDiscGBufferPass(FRDGBuilder& GraphBuilder, const FViewInfo& View, const struct FRenderTargetBindingSlots& BasePassTargets) const;
+
 	// Render thread: settings that change without rebuilding the proxy or re-uploading buffers.
 	void SetEmissiveIntensity_RenderThread(float Intensity) { Settings.EmissiveIntensity = Intensity; }
 	void SetStreamSettings_RenderThread(bool bDither, bool bVisualizer, float Intensity, float Hue, bool bFill, bool bGauss)
 	{
 		Settings.bDitheredTransitions = bDither; Settings.bRefinementVisualizer = bVisualizer; Settings.GlowIntensity = Intensity; Settings.GlowHue = Hue;
 		Settings.bShadowMeshFill = bFill; Settings.bGaussians = bGauss;
+	}
+	void SetLightingSettings_RenderThread(bool bLit, float Blend, float Roughness, float Specular, float Albedo)
+	{
+		Settings.bLit = bLit; Settings.LitBlend = Blend; Settings.LitRoughness = Roughness; Settings.LitSpecular = Specular; Settings.AlbedoScale = Albedo;
 	}
 
 	// Render thread: streaming. The records (once), then each frame's render list. Until the first list arrives the
@@ -108,5 +127,7 @@ private:
 	void AddGaussianPasses(FRDGBuilder& GraphBuilder, const FViewInfo& View, FRDGBufferRef Records, FRDGBufferRef Meshlets, const class FSplatPakDiscParameters& Disc,
 		FRDGTextureRef SceneColor, FRDGTextureRef SceneDepth) const;
 	void AddMeshFillPasses(FRDGBuilder& GraphBuilder, const FViewInfo& View, const FMatrix44f& ModelToClip, FRDGTextureRef SceneColor, FRDGTextureRef SceneDepth) const;
+	void AddDiscs(FRDGBuilder& GraphBuilder, const FViewInfo& View, FRDGTextureRef SceneColor, FRDGTextureRef SceneDepth,
+		const struct FRenderTargetBindingSlots* GBufferTargets) const;
 	bool bRegistered = false;
 };

@@ -134,6 +134,27 @@ void USplatPakComponent::SetEmissiveIntensity(float NewIntensity)
 	}
 }
 
+void USplatPakComponent::SetLighting(bool bNewLit, float NewLitBlend, float NewAlbedoScale, float NewRoughness, float NewSpecular)
+{
+	bLit = bNewLit;
+	LitBlend = FMath::Clamp(NewLitBlend, 0.0f, 1.0f);
+	AlbedoScale = FMath::Max(NewAlbedoScale, 0.0f);
+	LitRoughness = FMath::Clamp(NewRoughness, 0.0f, 1.0f);
+	LitSpecular = FMath::Clamp(NewSpecular, 0.0f, 1.0f);
+	PushLightingSettings();
+}
+
+void USplatPakComponent::PushLightingSettings() const
+{
+	if (FSplatPakSceneProxy* Proxy = static_cast<FSplatPakSceneProxy*>(SceneProxy))
+	{
+		ENQUEUE_RENDER_COMMAND(SetSplatLightingSettings)([Proxy, bOn = bLit, Blend = LitBlend, Roughness = LitRoughness, Specular = LitSpecular, Albedo = AlbedoScale](FRHICommandListImmediate&)
+		{
+			Proxy->SetLightingSettings_RenderThread(bOn, Blend, Roughness, Specular, Albedo);
+		});
+	}
+}
+
 FPrimitiveSceneProxy* USplatPakComponent::CreateSceneProxy()
 {
 	if (!SplatPakAsset)
@@ -160,6 +181,11 @@ FPrimitiveSceneProxy* USplatPakComponent::CreateSceneProxy()
 	Settings.GlowHue = GlowHue;
 	Settings.bShadowMeshFill = bShadowMeshFill;
 	Settings.bGaussians = bGaussians;
+	Settings.bLit = bLit;
+	Settings.LitBlend = LitBlend;
+	Settings.LitRoughness = LitRoughness;
+	Settings.LitSpecular = LitSpecular;
+	Settings.AlbedoScale = AlbedoScale;
 	// A new proxy takes the stream's records now; its render list arrives with the next tick
 	return new FSplatPakSceneProxy(this, MoveTemp(Level), Settings, bStreaming ? StreamSource : nullptr);
 }
@@ -495,6 +521,18 @@ void USplatPakComponent::PostEditChangeProperty(FPropertyChangedEvent& PropertyC
 	{
 		SetEmissiveIntensity(EmissiveIntensity);
 		return;
+	}
+	static const FName LightingNames[] = {
+		GET_MEMBER_NAME_CHECKED(USplatPakComponent, bLit), GET_MEMBER_NAME_CHECKED(USplatPakComponent, LitBlend),
+		GET_MEMBER_NAME_CHECKED(USplatPakComponent, AlbedoScale), GET_MEMBER_NAME_CHECKED(USplatPakComponent, LitRoughness),
+		GET_MEMBER_NAME_CHECKED(USplatPakComponent, LitSpecular) };
+	for (const FName& Setting : LightingNames)
+	{
+		if (Name == Setting)
+		{
+			PushLightingSettings();
+			return;
+		}
 	}
 	// The stream's own settings are read every tick: nothing to rebuild
 	static const FName StreamSettingNames[] = {

@@ -42,6 +42,13 @@ BEGIN_SHADER_PARAMETER_STRUCT(FSplatPakDiscParameters, )
 	SHADER_PARAMETER(uint32, StreamFlags) // Bit 0: dithered cross-fades; bit 1: Refinement Visualizer
 	SHADER_PARAMETER(float, GlowHue)
 	SHADER_PARAMETER_ARRAY(FVector4f, LevelRadii, [2]) // Disc radius per level (8 levels)
+	// Lit mode (MainGBufferPS): the discs go into Unreal's GBuffer so its lights, shadows and Lumen shade them
+	SHADER_PARAMETER(FMatrix44f, ModelToWorldNormal) // Inverse transpose of model to world: model-space normals to world space
+	SHADER_PARAMETER(uint32, LitMode)    // 1 = GBuffer pass: no SplatPak key light on point records
+	SHADER_PARAMETER(float, LitBlend)    // 0 = the baked colour as emissive (the unlit look), 1 = the colour as albedo, fully lit
+	SHADER_PARAMETER(float, LitRoughness)
+	SHADER_PARAMETER(float, LitSpecular)
+	SHADER_PARAMETER(float, AlbedoScale) // The baked colour times this is the albedo
 	RENDER_TARGET_BINDING_SLOTS()
 END_SHADER_PARAMETER_STRUCT()
 
@@ -266,6 +273,19 @@ class FSplatPakDiscPS : public FSplatPakDiscShaderBase
 {
 	DECLARE_GLOBAL_SHADER(FSplatPakDiscPS);
 	SHADER_USE_PARAMETER_STRUCT(FSplatPakDiscPS, FSplatPakDiscShaderBase);
+};
+
+// Lit mode: the same discs written into Unreal's GBuffer (scene colour + GBufferA-C) right after the base pass
+class FSplatPakDiscGBufferPS : public FSplatPakDiscShaderBase
+{
+	DECLARE_GLOBAL_SHADER(FSplatPakDiscGBufferPS);
+	SHADER_USE_PARAMETER_STRUCT(FSplatPakDiscGBufferPS, FSplatPakDiscShaderBase);
+
+	static void ModifyCompilationEnvironment(const FGlobalShaderPermutationParameters& Parameters, FShaderCompilerEnvironment& OutEnvironment)
+	{
+		FSplatPakDiscShaderBase::ModifyCompilationEnvironment(Parameters, OutEnvironment);
+		OutEnvironment.SetDefine(TEXT("SPLATS_GBUFFER"), 1);
+	}
 };
 
 // Must match SPLATS_PER_GROUP / AS_GROUP_SIZE in SplatPakDisc.usf.

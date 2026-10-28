@@ -8,12 +8,14 @@
 #include "PipelineStateCache.h"
 #include "RenderGraphBuilder.h"
 #include "RenderGraphUtils.h"
+#include "RenderUtils.h"
 #include "SceneRendering.h"
 
 IMPLEMENT_GLOBAL_SHADER(FSplatPakDiscAS, "/Plugin/SplatPak/Private/SplatPakDisc.usf", "MainAS", SF_Amplification);
 IMPLEMENT_GLOBAL_SHADER(FSplatPakDiscMS, "/Plugin/SplatPak/Private/SplatPakDisc.usf", "MainMS", SF_Mesh);
 IMPLEMENT_GLOBAL_SHADER(FSplatPakDiscVS, "/Plugin/SplatPak/Private/SplatPakDisc.usf", "MainVS", SF_Vertex);
 IMPLEMENT_GLOBAL_SHADER(FSplatPakDiscPS, "/Plugin/SplatPak/Private/SplatPakDisc.usf", "MainPS", SF_Pixel);
+IMPLEMENT_GLOBAL_SHADER(FSplatPakDiscGBufferPS, "/Plugin/SplatPak/Private/SplatPakDisc.usf", "MainGBufferPS", SF_Pixel);
 IMPLEMENT_GLOBAL_SHADER(FSplatPakGaussianExpandCS, "/Plugin/SplatPak/Private/SplatPakGaussian.usf", "ExpandCS", SF_Compute);
 IMPLEMENT_GLOBAL_SHADER(FSplatPakGaussianHistogramCS, "/Plugin/SplatPak/Private/SplatPakGaussian.usf", "HistogramCS", SF_Compute);
 IMPLEMENT_GLOBAL_SHADER(FSplatPakGaussianScanCS, "/Plugin/SplatPak/Private/SplatPakGaussian.usf", "ScanCS", SF_Compute);
@@ -130,7 +132,31 @@ uint32 FSplatPakDrawable::GetGPUMemoryBytes() const
 		+ Level->OccluderPositions.size() * sizeof(SplatCore::FVec3) + Level->OccluderIndices.size() * sizeof(uint32)) : 0);
 }
 
+bool FSplatPakDrawable::DrawsLit(const FSceneView& View) const
+{
+	// Substrate replaces the GBuffer this pass writes; forward shading has none
+	return Settings.bLit && !Substrate::IsSubstrateEnabled() && !IsForwardShadingEnabled(View.GetShaderPlatform());
+}
+
 void FSplatPakDrawable::AddDiscPass(FRDGBuilder& GraphBuilder, const FViewInfo& View, FRDGTextureRef SceneColor, FRDGTextureRef SceneDepth) const
+{
+	AddDiscs(GraphBuilder, View, SceneColor, SceneDepth, nullptr);
+}
+
+void FSplatPakDrawable::AddDiscGBufferPass(FRDGBuilder& GraphBuilder, const FViewInfo& View, const FRenderTargetBindingSlots& BasePassTargets) const
+{
+	FRDGTextureRef SceneColor = BasePassTargets.Output[0].GetTexture();
+	FRDGTextureRef SceneDepth = BasePassTargets.DepthStencil.GetTexture();
+	if (SceneColor && SceneDepth && BasePassTargets.Output[3].GetTexture())
+	{
+		AddDiscs(GraphBuilder, View, SceneColor, SceneDepth, &BasePassTargets);
+	}
+}
+
+// The disc draw for both passes. GBufferTargets null: the unlit pass into SceneColor (after lighting); otherwise lit mode,
+// into the base pass's scene colour and GBufferA-C, without the gap fill or the Gaussians.
+void FSplatPakDrawable::AddDiscs(FRDGBuilder& GraphBuilder, const FViewInfo& View, FRDGTextureRef SceneColor, FRDGTextureRef SceneDepth,
+	const FRenderTargetBindingSlots* GBufferTargets) const
 {
 	const SplatCore::FDecodedLevel& Data = *Level;
 	// Streaming: the frame's render list over every level's records; otherwise the resident level. Both share the
@@ -217,6 +243,13 @@ void FSplatPakDrawable::AddDiscPass(FRDGBuilder& GraphBuilder, const FViewInfo& 
 	Parameters->ScaleLog2Max = Data.ScaleLog2Max;
 	Parameters->PreExposure = View.PreExposure;
 	Parameters->EmissiveIntensity = Settings.EmissiveIntensity;
+	const bool bGBuffer = GBufferTargets != nullptr;
+	Parameters->ModelToWorldNormal = FMatrix44f(ModelToWorld.RemoveTranslation().Inverse().GetTransposed());
+	Parameters->LitMode = bGBuffer ? 1u : 0u;
+	Parameters->LitBlend = FMath::Clamp(Settings.LitBlend, 0.0f, 1.0f);
+	Parameters->LitRoughness = FMath::Clamp(Settings.LitRoughness, 0.0f, 1.0f);
+	Parameters->LitSpecular = FMath::Clamp(Settings.LitSpecular, 0.0f, 1.0f);
+	Parameters->AlbedoScale = FMath::Max(Settings.AlbedoScale, 0.0f);
 
 	// Occlusion culling (mesh-shader path): the occluder mesh rasterised from the view into a small depth grid,
 	// which the amplification shader tests each meshlet against (SplatPakOcclusion.ush)
@@ -278,20 +311,31 @@ void FSplatPakDrawable::AddDiscPass(FRDGBuilder& GraphBuilder, const FViewInfo& 
 		Parameters->OccMeshletPad = (MaxLevelRadius > 0.0f) ? Settings.SplatScale * MaxLevelRadius * Classes : ClassRadius;
 	}
 	Parameters->RenderTargets[0] = FRenderTargetBinding(SceneColor, ERenderTargetLoadAction::ELoad);
+	if (bGBuffer)
+	{
+		// The base pass's GBufferA-C (slots 1-3 in every non-Substrate layout); D, E and velocity are left alone
+		for (int32 Slot = 1; Slot <= 3; Slot++)
+		{
+			Parameters->RenderTargets[Slot] = FRenderTargetBinding(GBufferTargets->Output[Slot].GetTexture(), ERenderTargetLoadAction::ELoad);
+		}
+	}
+	// Depth writes even when the base pass itself only tests depth (after a full depth prepass)
 	Parameters->RenderTargets.DepthStencil = FDepthStencilBinding(SceneDepth, ERenderTargetLoadAction::ELoad, FExclusiveDepthStencil::DepthWrite_StencilNop);
-	if (Settings.bShadowMeshFill)
+	if (Settings.bShadowMeshFill && !bGBuffer)
 	{
 		AddMeshFillPasses(GraphBuilder, View, Parameters->ModelToClip, SceneColor, SceneDepth);
 	}
-	// Streaming with Gaussians on: sorted, blended Gaussians in place of the discs
-	if (bStreaming && Settings.bGaussians)
+	// Streaming with Gaussians on: sorted, blended Gaussians in place of the discs (unlit only)
+	if (bStreaming && Settings.bGaussians && !bGBuffer)
 	{
 		AddGaussianPasses(GraphBuilder, View, Records, Meshlets, *Parameters, SceneColor, SceneDepth);
 		return;
 	}
 
 	FGlobalShaderMap* ShaderMap = GetGlobalShaderMap(View.FeatureLevel);
-	TShaderMapRef<FSplatPakDiscPS> PixelShader(ShaderMap);
+	const TShaderRef<FSplatPakDiscShaderBase> PixelShader = bGBuffer
+		? TShaderRef<FSplatPakDiscShaderBase>(TShaderMapRef<FSplatPakDiscGBufferPS>(ShaderMap))
+		: TShaderRef<FSplatPakDiscShaderBase>(TShaderMapRef<FSplatPakDiscPS>(ShaderMap));
 	const FIntRect ViewRect = View.ViewRect;
 
 	// Shader map refs for the mesh stages exist only where they were compiled, so build them inside the branch.

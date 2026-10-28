@@ -69,6 +69,13 @@ float    OccMeshletPad;  // The largest disc radius (model units): a meshlet's b
 uint     StreamFlags;    // Bit 0: dither cross-fades by BlendWeight; bit 1: Refinement Visualizer (arrival glow)
 float    GlowHue;        // Rotates every level's glow hue, degrees (0 = gold at level 0)
 float4   LevelRadii[2];  // Auto splat size per level: the level's point spacing x coverage (model units); 0 = size classes
+// Lit mode (MainGBufferPS)
+float4x4 ModelToWorldNormal; // Inverse transpose of model to world
+uint     LitMode;        // 1 = GBuffer pass: point records skip SplatPak's key light (Unreal's lights replace it)
+float    LitBlend;       // 0 = the baked colour as emissive (the unlit look), 1 = the colour as albedo, fully lit
+float    LitRoughness;
+float    LitSpecular;
+float    AlbedoScale;    // The baked colour times this is the albedo
 
 #include "/Plugin/SplatPak/Private/SplatPakOcclusion.ush"
 
@@ -76,8 +83,10 @@ struct FSplatPakVSOut
 {
 	float4 Position : SV_POSITION;
 	float2 UV       : TEXCOORD0;
-	float3 Color    : TEXCOORD1; // Display-space colour (as stored)
+	float3 Color    : TEXCOORD1; // Display-space colour (as stored), before the arrival glow
 	nointerpolation float BlendWeight : TEXCOORD2; // The meshlet's cross-fade (1 = solid)
+	float3 WorldNormal : TEXCOORD3; // The disc's normal, facing the camera (lit mode)
+	float3 Glow     : TEXCOORD4; // The arrival glow, display space: Color + Glow is what the unlit pass draws
 };
 
 static const float2 QuadCorners[4] = { float2(-1.0, -1.0), float2(1.0, -1.0), float2(-1.0, 1.0), float2(1.0, 1.0) };
@@ -140,6 +149,8 @@ struct FSplatPakDisc
 	float3 TangentX;
 	float3 TangentY;
 	float3 Color;
+	float3 Glow;   // The arrival glow, added to Color by the unlit pass
+	float3 Normal; // Model space, facing the camera
 };
 
 void SplatTangents(float3 Normal, float Radius, out float3 TangentX, out float3 TangentY)
@@ -283,15 +294,24 @@ bool BuildDisc(uint SplatIndex, uint Lod, float Wave, out FSplatPakDisc Disc)
 	SplatTangents(Normal, Radius, Disc.TangentX, Disc.TangentY);
 	SolidDot(DistToCam, Disc.TangentX, Disc.TangentY);
 
-	if (bLit)
+	if (bLit && LitMode == 0)
 	{
-		// SplatPak's two-sided key light; Lumen lighting through the GBuffer replaces it later
+		// SplatPak's two-sided key light; in lit mode Unreal's lights shade the disc instead
 		Disc.Color *= 0.35 + 0.65 * abs(dot(Normal, LightDirModel));
 	}
 	if ((StreamFlags & 2u) != 0 && Wave > 0.0 && Wave < 0.99)
 	{
-		ArrivalGlow(Disc.Color, Wave, Lod);
+		float3 Glowing = Disc.Color;
+		ArrivalGlow(Glowing, Wave, Lod);
+		Disc.Glow = Glowing - Disc.Color;
 	}
+	// Discs are two-sided: the normal faces the camera. Billboards and records without a normal face it outright.
+	const float3 ToEye = normalize(EyeModel - Disc.Center);
+	if (OrientMode != 0 || abs(Normal.x) + abs(Normal.y) + abs(Normal.z) <= 0.1)
+	{
+		Normal = ToEye;
+	}
+	Disc.Normal = dot(Normal, ToEye) < 0.0 ? -Normal : Normal;
 	return true;
 }
 
@@ -303,6 +323,8 @@ FSplatPakVSOut DiscCornerVertex(FSplatPakDisc Disc, uint Corner, float BlendWeig
 	O.UV = CC * 0.5 + 0.5;
 	O.Color = Disc.Color;
 	O.BlendWeight = BlendWeight;
+	O.WorldNormal = mul(float4(Disc.Normal, 0.0), ModelToWorldNormal).xyz;
+	O.Glow = Disc.Glow;
 	return O;
 }
 
@@ -313,6 +335,8 @@ FSplatPakVSOut CulledVertex()
 	O.UV = float2(0.0, 0.0);
 	O.Color = float3(0.0, 0.0, 0.0);
 	O.BlendWeight = 1.0;
+	O.WorldNormal = float3(0.0, 0.0, 1.0);
+	O.Glow = float3(0.0, 0.0, 0.0);
 	return O;
 }
 
@@ -520,7 +544,8 @@ float Bayer8x8(uint2 Pixel)
 	return Bayer[(Pixel.y & 7u) * 8u + (Pixel.x & 7u)] / 64.0;
 }
 
-void MainPS(FSplatPakVSOut In, out float4 OutColor : SV_Target0)
+// The disc's round edge, then the cross-fade dither: shared by the unlit and the lit pass
+void ClipDiscPixel(FSplatPakVSOut In)
 {
 	float2 Centered = In.UV * 2.0 - 1.0;
 	if (dot(Centered, Centered) > 1.0)
@@ -540,5 +565,46 @@ void MainPS(FSplatPakVSOut In, out float4 OutColor : SV_Target0)
 			if (Threshold < -In.BlendWeight) discard;
 		}
 	}
-	OutColor = float4(SRGBToLinearColor(In.Color) * EmissiveIntensity * PreExposure, 1.0);
 }
+
+void MainPS(FSplatPakVSOut In, out float4 OutColor : SV_Target0)
+{
+	ClipDiscPixel(In);
+	OutColor = float4(SRGBToLinearColor(In.Color + In.Glow) * EmissiveIntensity * PreExposure, 1.0);
+}
+
+#if SPLATS_GBUFFER
+
+#include "/Engine/Private/DeferredShadingCommon.ush"
+
+// Lit mode, drawn right after Unreal's base pass into its targets: scene colour (emissive) and GBufferA-C (normal;
+// shading model, roughness, specular; base colour). The stored colour is baked light, so it is split by LitBlend:
+// (1 - LitBlend) of it stays emissive, LitBlend of it becomes the albedo Unreal's lights, shadows and Lumen shade.
+// The arrival glow stays emissive.
+void MainGBufferPS(FSplatPakVSOut In,
+	out float4 OutColor   : SV_Target0,
+	out float4 OutGBufferA : SV_Target1,
+	out float4 OutGBufferB : SV_Target2,
+	out float4 OutGBufferC : SV_Target3)
+{
+	ClipDiscPixel(In);
+	const float3 Baked = SRGBToLinearColor(In.Color);
+	const float3 Glow = SRGBToLinearColor(In.Color + In.Glow) - Baked;
+	OutColor = float4((Baked * (1.0 - LitBlend) + Glow) * EmissiveIntensity * PreExposure, 1.0);
+
+	FGBufferData GBuffer = (FGBufferData)0;
+	GBuffer.WorldNormal = normalize(In.WorldNormal);
+	GBuffer.BaseColor = saturate(Baked * AlbedoScale * LitBlend);
+	GBuffer.Metallic = 0.0;
+	GBuffer.Specular = LitSpecular * LitBlend; // At LitBlend 0 nothing reflects either: exactly the unlit look
+	GBuffer.Roughness = LitRoughness;
+	GBuffer.GBufferAO = 1.0;
+	GBuffer.IndirectIrradiance = 1.0;
+	GBuffer.ShadingModelID = SHADINGMODELID_DEFAULT_LIT;
+	// Nothing written to the precomputed-shadow or velocity targets: the lights must not read them for these pixels
+	GBuffer.SelectiveOutputMask = SKIP_PRECSHADOW_MASK | SKIP_VELOCITY_MASK;
+	float4 OutGBufferD, OutGBufferE, OutVelocity;
+	EncodeGBuffer(GBuffer, OutGBufferA, OutGBufferB, OutGBufferC, OutGBufferD, OutGBufferE, OutVelocity);
+}
+
+#endif // SPLATS_GBUFFER

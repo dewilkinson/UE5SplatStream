@@ -27,7 +27,16 @@ design record in [docs/](../../docs/README.md): decisions, plan and journal.
   culls 32 meshlets per group, and a mesh shader emits 64 discs per meshlet. Hardware without Mesh
   Shader Tier 1 (or `r.SplatPak.MeshShaders 0`) uses the instanced vertex-shader fallback.
 - The colour is SplatPak's own: its fixed two-sided key light on 8-byte point records and unlit DC colour
-  on splat records, converted to linear and pre-exposed. Unreal's lights don't affect it yet.
+  on splat records, converted to linear and pre-exposed. Unreal's lights don't affect it, unless lit mode is on.
+- **Lit mode** (the component's **Lighting** settings, `Lit`): the discs are written into Unreal's GBuffer right after
+  the base pass (`PostRenderBasePassDeferred_RenderThread`: scene colour plus GBufferA-C, depth-writing), so the scene's
+  lights, their shadows (virtual shadow maps included) and Lumen shade them. Each disc's normal is a point record's
+  stored normal or a splat's shortest axis, turned to face the camera. The stored colour is baked light, so **Lit
+  Blend** splits it: 0 keeps it all emissive (the unlit look), 1 makes it all albedo; **Albedo Scale**, **Lit
+  Roughness** and **Lit Specular** set the rest of the surface. Lit mode always draws discs (no Gaussians) and no gap
+  fill, and needs the deferred renderer without Substrate (otherwise the scan draws unlit). It is a first step: the
+  per-splat normals are noisy, and the albedo is the baked colour, not a de-lit one. The demo's `Map_LitDemo` (built by
+  its `Scripts\BuildLitDemo.ps1`, `-Check` for captures) shows the unlit and the lit Cthulhu side by side.
 - **Shadows, Lumen and collision from the shadow mesh** (format v12): importing a package that carries one also creates
   `<name>_ShadowMesh`, a static mesh with three LODs following the model's visible surface (distance field on,
   complex-as-simple collision, no Nanite). Each Splat Component places it hidden: it casts the model's shadow from
@@ -96,11 +105,11 @@ Still to confirm at runtime: that `SplatPakRendering` loading at `PostConfigInit
 
 ## Known gaps (by plan)
 
-- **Lighting:** step 1 writes colour after Unreal's lighting, so Lumen doesn't light the discs
-  yet. Writing them into the GBuffer before lighting (agreed decision 3) depends on the project's
-  GBuffer layout (Substrate or legacy), so it's a separate step, done against the installed engine.
-- **Translucency:** discs drawn after the translucency pass overwrite translucent surfaces in
-  front of them. Moving the opaque discs into the GBuffer pass fixes this as well.
+- **Lighting:** unlit discs are written after Unreal's lighting, so its lights don't reach them. Lit mode writes them
+  into the GBuffer instead, for the legacy GBuffer layout only; Substrate projects, sorted Gaussians and the gap fill
+  stay unlit. Lit Gaussians need a deferred pass of their own (blended normal and albedo, shaded once).
+- **Translucency:** unlit discs drawn after the translucency pass overwrite translucent surfaces in
+  front of them. Lit mode, drawn with the base pass, does not.
 - **No per-splat shadow casting** (the shadow mesh stands in; true splat shadows need a depth pass per light). The splats
   do not receive shadows yet either; when they do, a depth bias will keep the shadow mesh, which lies on the visible
   surface, from shadowing its own splats.
