@@ -44,6 +44,16 @@ static TAutoConsoleVariable<int32> CVarSplatPakOcclusionCulling(
 	TEXT("2 = debug: draw only the meshlets occlusion culling skips."),
 	ECVF_RenderThreadSafe);
 
+// Pass isolation (the editor's SplatPak Rendering panel): each of the splat passes can be switched off to see the others
+static TAutoConsoleVariable<int32> CVarSplatPakPassDiscs(TEXT("r.SplatPak.Pass.Discs"), 1,
+	TEXT("0 = skip the disc pass (unlit discs, and the lit pass's discs)."), ECVF_RenderThreadSafe);
+static TAutoConsoleVariable<int32> CVarSplatPakPassGaussians(TEXT("r.SplatPak.Pass.Gaussians"), 1,
+	TEXT("0 = draw streamed splats as discs instead of sorted, blended Gaussians."), ECVF_RenderThreadSafe);
+static TAutoConsoleVariable<int32> CVarSplatPakPassFill(TEXT("r.SplatPak.Pass.Fill"), 1,
+	TEXT("0 = skip the gap fill (the occluder and shadow mesh drawn under the splats)."), ECVF_RenderThreadSafe);
+static TAutoConsoleVariable<int32> CVarSplatPakPassLit(TEXT("r.SplatPak.Pass.Lit"), 1,
+	TEXT("0 = draw lit scans unlit (no GBuffer pass)."), ECVF_RenderThreadSafe);
+
 // Width of the occlusion grid in pixels; the height follows the view's aspect ratio.
 static constexpr uint32 GSplatOcclusionGridWidth = 256;
 
@@ -139,7 +149,7 @@ uint32 FSplatPakDrawable::GetGPUMemoryBytes() const
 bool FSplatPakDrawable::DrawsLit(const FSceneView& View) const
 {
 	// Substrate replaces the GBuffer this pass writes; forward shading has none
-	return Settings.bLit && !Substrate::IsSubstrateEnabled() && !IsForwardShadingEnabled(View.GetShaderPlatform());
+	return Settings.bLit && CVarSplatPakPassLit.GetValueOnRenderThread() != 0 && !Substrate::IsSubstrateEnabled() && !IsForwardShadingEnabled(View.GetShaderPlatform());
 }
 
 void FSplatPakDrawable::AddDiscPass(FRDGBuilder& GraphBuilder, const FViewInfo& View, FRDGTextureRef SceneColor, FRDGTextureRef SceneDepth) const
@@ -331,14 +341,18 @@ void FSplatPakDrawable::AddDiscs(FRDGBuilder& GraphBuilder, const FViewInfo& Vie
 	}
 	// Depth writes even when the base pass itself only tests depth (after a full depth prepass)
 	Parameters->RenderTargets.DepthStencil = FDepthStencilBinding(SceneDepth, ERenderTargetLoadAction::ELoad, FExclusiveDepthStencil::DepthWrite_StencilNop);
-	if (Settings.bShadowMeshFill && !bGBuffer)
+	if (Settings.bShadowMeshFill && !bGBuffer && CVarSplatPakPassFill.GetValueOnRenderThread() != 0)
 	{
 		AddMeshFillPasses(GraphBuilder, View, Parameters->ModelToClip, SceneColor, SceneDepth);
 	}
 	// Streaming with Gaussians on: sorted, blended Gaussians in place of the discs (unlit only)
-	if (bStreaming && Settings.bGaussians && !bGBuffer)
+	if (bStreaming && Settings.bGaussians && !bGBuffer && CVarSplatPakPassGaussians.GetValueOnRenderThread() != 0)
 	{
 		AddGaussianPasses(GraphBuilder, View, Records, Meshlets, *Parameters, SceneColor, SceneDepth);
+		return;
+	}
+	if (CVarSplatPakPassDiscs.GetValueOnRenderThread() == 0)
+	{
 		return;
 	}
 
