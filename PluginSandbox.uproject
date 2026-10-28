@@ -2,7 +2,7 @@
 	"FileVersion": 3,
 	"EngineAssociation": "5.8",
 	"Category": "",
-	"Description": "Host project for developing and testing the UE5Splats plugin",
+	"Description": "Host project for developing and testing the SplatPak plugin (UE5SplatStream)",
 	"Modules": [
 		{ "Name": "PluginSandbox", "Type": "Runtime", "LoadingPhase": "Default" }
 	],

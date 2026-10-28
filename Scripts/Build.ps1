@@ -1,8 +1,8 @@
-# Generates project files and builds the editor target (includes the UE5Splats plugin).
+# Generates project files and builds the editor target (includes the SplatPak plugin).
 param([string]$Config = "Development")
 $ErrorActionPreference = "Stop"
 
-# UE5Splats links the proprietary codec, staged from the 3DGSStream repo (gitignored here).
+# UE5SplatStream links the proprietary codec, staged from the 3DGSStream repo (gitignored here).
 if (-not (Test-Path "$PSScriptRoot\..\Plugins\SplatPak\Source\ThirdParty\GSTx\lib\Win64\gstx.lib")) {
 	& "$PSScriptRoot\BuildCodec.ps1"
 	if ($LASTEXITCODE) { exit $LASTEXITCODE }

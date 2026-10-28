@@ -1,4 +1,4 @@
-# UE5Splats
+# UE5SplatStream
 
 The home of **SplatPak**, an Unreal Engine 5 plugin that renders compressed 3D Gaussian splat scans (`.gstx` packages) inside
 Unreal's own renderer, so they sit in a level next to Nanite meshes and occlude them correctly.

@@ -1,4 +1,4 @@
-# Stages the GSTx codec static library and headers for the UE5Splats plugin.
+# Stages the GSTx codec static library and headers for the SplatPak plugin (UE5SplatStream).
 #
 # -CodecRepo points at a checkout that contains libs/gstx:
 #   - the public mirror (https://github.com/dewilkinson/splatpak, cloned with Git LFS): its
