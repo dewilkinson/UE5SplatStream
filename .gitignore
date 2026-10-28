@@ -22,3 +22,8 @@ Content/
 
 # Fab staging lives in the private UE5SplatPakDemo project (Scripts/StageFab.ps1), never here.
 /Fab/
+
+# Gemini handoff work area (briefs, decks, reviews): local only
+/handoff/
+/.gemini/
+/.geminiignore
