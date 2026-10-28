@@ -253,3 +253,17 @@ Problems found and fixed on the way (all in the demo scripts, not the plugin):
   lit disc within 3% of the model's size of that surface leans its normal toward the mesh's by **Normal Smoothing**
   (default 0.7). The demo check gained a capture with smoothing off. A transient depth target created without
   `TexCreate_ShaderResource` tripped a D3D12 barrier assertion (deny-SRV resource transitioned to SRV); it has the flag now.
+
+### SoundStage concept (2026-10-28)
+
+- The user asked to package the scene's boundary, collision and stairway volumes as a SoundStage scene asset in the
+  plugin, with a simple scene spec and accessors. Built as a first concept (`docs/soundstage.md`): `USoundStageAsset`,
+  `ASoundStageActor`, a SoundStage factory (new, and import of `*.soundstage.json`), and the demo's pedestal moved into
+  the plugin as `ASplatPakPedestal`.
+- Splat references: first content-derived UUIDs were tried (a SHA-1 of the package), then dropped at the user's request
+  for paths relative to a root directory, which keep the spec hand-editable; UUIDs may still be used internally later.
+- The spec is in the package frame (metres, Y up) so SplatPak can read the same file.
+- The palace demo is now one stage actor built from `Scenes/BishopsPalace.soundstage.json` (8 volumes, 5 pieces).
+- Offline scene captures don't draw the shape components' wireframes (even with the Collision show flag), and new
+  materials can still be compiling when they run (default checker on the plinths); the volumes are checked in the
+  editor viewport instead.
