@@ -49,6 +49,9 @@ BEGIN_SHADER_PARAMETER_STRUCT(FSplatPakDiscParameters, )
 	SHADER_PARAMETER(float, LitRoughness)
 	SHADER_PARAMETER(float, LitSpecular)
 	SHADER_PARAMETER(float, AlbedoScale) // The baked colour times this is the albedo
+	SHADER_PARAMETER_RDG_TEXTURE(Texture2D, MeshNormalTexture) // The shadow mesh's world normals (xyz) and clip w (w; 0 = none)
+	SHADER_PARAMETER(float, NormalSmoothing)     // 0 = the splat's own normal, 1 = the shadow mesh's where the disc lies on it
+	SHADER_PARAMETER(float, MeshNormalTolerance) // How far (clip w, world units) a disc may lie from the mesh and still take its normal
 	RENDER_TARGET_BINDING_SLOTS()
 END_SHADER_PARAMETER_STRUCT()
 
@@ -192,6 +195,40 @@ class FSplatPakMeshPS : public FSplatPakMeshShaderBase
 {
 	DECLARE_GLOBAL_SHADER(FSplatPakMeshPS);
 	SHADER_USE_PARAMETER_STRUCT(FSplatPakMeshPS, FSplatPakMeshShaderBase);
+};
+
+// Lit mode's normal smoothing (SplatPakMesh.usf MainNormalVS/PS): the shadow mesh's smooth normals and view depth
+BEGIN_SHADER_PARAMETER_STRUCT(FSplatPakMeshNormalParameters, )
+	SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<float>, MeshPositions)
+	SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<float>, MeshNormals)
+	SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<uint>, MeshIndices)
+	SHADER_PARAMETER(FMatrix44f, ModelToClip)
+	SHADER_PARAMETER(FMatrix44f, ModelToWorldNormal)
+	RENDER_TARGET_BINDING_SLOTS()
+END_SHADER_PARAMETER_STRUCT()
+
+class FSplatPakMeshNormalShaderBase : public FGlobalShader
+{
+public:
+	using FParameters = FSplatPakMeshNormalParameters;
+	FSplatPakMeshNormalShaderBase() = default;
+	FSplatPakMeshNormalShaderBase(const ShaderMetaType::CompiledShaderInitializerType& Initializer) : FGlobalShader(Initializer) {}
+	static bool ShouldCompilePermutation(const FGlobalShaderPermutationParameters& Parameters)
+	{
+		return IsFeatureLevelSupported(Parameters.Platform, ERHIFeatureLevel::SM5);
+	}
+};
+
+class FSplatPakMeshNormalVS : public FSplatPakMeshNormalShaderBase
+{
+	DECLARE_GLOBAL_SHADER(FSplatPakMeshNormalVS);
+	SHADER_USE_PARAMETER_STRUCT(FSplatPakMeshNormalVS, FSplatPakMeshNormalShaderBase);
+};
+
+class FSplatPakMeshNormalPS : public FSplatPakMeshNormalShaderBase
+{
+	DECLARE_GLOBAL_SHADER(FSplatPakMeshNormalPS);
+	SHADER_USE_PARAMETER_STRUCT(FSplatPakMeshNormalPS, FSplatPakMeshNormalShaderBase);
 };
 
 // The occluder raster (SplatPakOcclusion.usf)

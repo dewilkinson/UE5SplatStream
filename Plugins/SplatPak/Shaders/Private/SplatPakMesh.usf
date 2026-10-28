@@ -45,3 +45,28 @@ void MainPS(FSplatPakMeshVSOut In, out float4 OutColor : SV_Target0)
 	const float Lighting = 0.35 + 0.65 * abs(dot(N, LightDirModel));
 	OutColor = float4(MeshSRGBToLinear(saturate(In.Color * Lighting)) * EmissiveIntensity * PreExposure, 1.0);
 }
+
+// Lit mode's normal smoothing: the shadow mesh's smooth vertex normals (world space) and its view depth (clip w) into a
+// screen-sized target, which the lit disc pass reads to replace the splats' noisy normals near the mesh's surface.
+StructuredBuffer<float> MeshNormals; // Three floats per vertex, model space, smooth (area-weighted)
+float4x4 ModelToWorldNormal;
+
+struct FSplatPakMeshNormalVSOut
+{
+	float4 Position : SV_POSITION;
+	float3 WorldNormal : TEXCOORD0;
+};
+
+void MainNormalVS(uint VertexId : SV_VertexID, out FSplatPakMeshNormalVSOut Out)
+{
+	const uint I = MeshIndices[VertexId];
+	const float3 P = float3(MeshPositions[I * 3], MeshPositions[I * 3 + 1], MeshPositions[I * 3 + 2]);
+	const float3 N = float3(MeshNormals[I * 3], MeshNormals[I * 3 + 1], MeshNormals[I * 3 + 2]);
+	Out.Position = mul(float4(P, 1.0), ModelToClip);
+	Out.WorldNormal = mul(float4(N, 0.0), ModelToWorldNormal).xyz;
+}
+
+void MainNormalPS(FSplatPakMeshNormalVSOut In, out float4 OutNormal : SV_Target0)
+{
+	OutNormal = float4(normalize(In.WorldNormal), In.Position.w);
+}

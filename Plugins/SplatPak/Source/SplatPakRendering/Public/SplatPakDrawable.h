@@ -45,6 +45,7 @@ struct FSplatPakDrawSettings
 	float LitRoughness = 0.8f;
 	float LitSpecular = 0.5f;
 	float AlbedoScale = 1.0f;   // The baked colour times this is the albedo
+	float NormalSmoothing = 0.7f; // 0 = each splat's own normal, 1 = the shadow mesh's smooth normal where a disc lies on it
 };
 
 // Streaming (USplatPakComponent with streaming on): every level's records in the streaming runtime's order, uploaded once,
@@ -91,9 +92,10 @@ public:
 		Settings.bDitheredTransitions = bDither; Settings.bRefinementVisualizer = bVisualizer; Settings.GlowIntensity = Intensity; Settings.GlowHue = Hue;
 		Settings.bShadowMeshFill = bFill; Settings.bGaussians = bGauss;
 	}
-	void SetLightingSettings_RenderThread(bool bLit, float Blend, float Roughness, float Specular, float Albedo)
+	void SetLightingSettings_RenderThread(bool bLit, float Blend, float Roughness, float Specular, float Albedo, float Smoothing)
 	{
 		Settings.bLit = bLit; Settings.LitBlend = Blend; Settings.LitRoughness = Roughness; Settings.LitSpecular = Specular; Settings.AlbedoScale = Albedo;
+		Settings.NormalSmoothing = Smoothing;
 	}
 
 	// Render thread: streaming. The records (once), then each frame's render list. Until the first list arrives the
@@ -124,6 +126,11 @@ private:
 	mutable TRefCountPtr<FRDGPooledBuffer> ShadowPositionBuffer;
 	mutable TRefCountPtr<FRDGPooledBuffer> ShadowColourBuffer;
 	mutable TRefCountPtr<FRDGPooledBuffer> ShadowIndexBuffer;
+	mutable TRefCountPtr<FRDGPooledBuffer> ShadowNormalBuffer;    // Lit mode: the shadow mesh's smooth vertex normals
+	mutable std::vector<float> ShadowNormals;                      // Their CPU copy, computed on first use (the upload reads it)
+	// Lit mode: the shadow mesh's smooth world normals and clip w into a screen-sized target; null without a shadow mesh
+	FRDGTextureRef AddMeshNormalPass(FRDGBuilder& GraphBuilder, const FViewInfo& View, const FMatrix44f& ModelToClip, const FMatrix44f& ModelToWorldNormal,
+		FRDGTextureRef SceneDepth) const;
 	void AddGaussianPasses(FRDGBuilder& GraphBuilder, const FViewInfo& View, FRDGBufferRef Records, FRDGBufferRef Meshlets, const class FSplatPakDiscParameters& Disc,
 		FRDGTextureRef SceneColor, FRDGTextureRef SceneDepth) const;
 	void AddMeshFillPasses(FRDGBuilder& GraphBuilder, const FViewInfo& View, const FMatrix44f& ModelToClip, FRDGTextureRef SceneColor, FRDGTextureRef SceneDepth) const;

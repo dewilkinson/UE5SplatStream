@@ -148,9 +148,10 @@ void USplatPakComponent::PushLightingSettings() const
 {
 	if (FSplatPakSceneProxy* Proxy = static_cast<FSplatPakSceneProxy*>(SceneProxy))
 	{
-		ENQUEUE_RENDER_COMMAND(SetSplatLightingSettings)([Proxy, bOn = bLit, Blend = LitBlend, Roughness = LitRoughness, Specular = LitSpecular, Albedo = AlbedoScale](FRHICommandListImmediate&)
+		ENQUEUE_RENDER_COMMAND(SetSplatLightingSettings)([Proxy, bOn = bLit, Blend = LitBlend, Roughness = LitRoughness, Specular = LitSpecular, Albedo = AlbedoScale,
+			Smoothing = NormalSmoothing](FRHICommandListImmediate&)
 		{
-			Proxy->SetLightingSettings_RenderThread(bOn, Blend, Roughness, Specular, Albedo);
+			Proxy->SetLightingSettings_RenderThread(bOn, Blend, Roughness, Specular, Albedo, Smoothing);
 		});
 	}
 }
@@ -186,6 +187,7 @@ FPrimitiveSceneProxy* USplatPakComponent::CreateSceneProxy()
 	Settings.LitRoughness = LitRoughness;
 	Settings.LitSpecular = LitSpecular;
 	Settings.AlbedoScale = AlbedoScale;
+	Settings.NormalSmoothing = NormalSmoothing;
 	// A new proxy takes the stream's records now; its render list arrives with the next tick
 	return new FSplatPakSceneProxy(this, MoveTemp(Level), Settings, bStreaming ? StreamSource : nullptr);
 }
@@ -525,7 +527,7 @@ void USplatPakComponent::PostEditChangeProperty(FPropertyChangedEvent& PropertyC
 	static const FName LightingNames[] = {
 		GET_MEMBER_NAME_CHECKED(USplatPakComponent, bLit), GET_MEMBER_NAME_CHECKED(USplatPakComponent, LitBlend),
 		GET_MEMBER_NAME_CHECKED(USplatPakComponent, AlbedoScale), GET_MEMBER_NAME_CHECKED(USplatPakComponent, LitRoughness),
-		GET_MEMBER_NAME_CHECKED(USplatPakComponent, LitSpecular) };
+		GET_MEMBER_NAME_CHECKED(USplatPakComponent, LitSpecular), GET_MEMBER_NAME_CHECKED(USplatPakComponent, NormalSmoothing) };
 	for (const FName& Setting : LightingNames)
 	{
 		if (Name == Setting)

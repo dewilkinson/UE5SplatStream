@@ -76,6 +76,9 @@ float    LitBlend;       // 0 = the baked colour as emissive (the unlit look), 1
 float    LitRoughness;
 float    LitSpecular;
 float    AlbedoScale;    // The baked colour times this is the albedo
+Texture2D MeshNormalTexture;  // The shadow mesh's smooth world normals (xyz) and clip w (w; 0 = no mesh at the pixel)
+float    NormalSmoothing;     // 0 = the splat's own normal, 1 = the shadow mesh's where the disc lies on it
+float    MeshNormalTolerance; // How far (clip w, world units) a disc may lie from the mesh and still take its normal
 
 #include "/Plugin/SplatPak/Private/SplatPakOcclusion.ush"
 
@@ -592,8 +595,20 @@ void MainGBufferPS(FSplatPakVSOut In,
 	const float3 Glow = SRGBToLinearColor(In.Color + In.Glow) - Baked;
 	OutColor = float4((Baked * (1.0 - LitBlend) + Glow) * EmissiveIntensity * PreExposure, 1.0);
 
+	// The splats' own normals are noisy: near the shadow mesh's surface, lean on its smooth normal instead
+	float3 Normal = normalize(In.WorldNormal);
+	if (NormalSmoothing > 0.0)
+	{
+		const float4 Mesh = MeshNormalTexture.Load(int3(In.Position.xy, 0));
+		if (Mesh.w > 0.0 && abs(Mesh.w - In.Position.w) < MeshNormalTolerance)
+		{
+			const float3 MeshNormal = dot(Mesh.xyz, Normal) < 0.0 ? -Mesh.xyz : Mesh.xyz; // Two-sided, like the disc
+			Normal = normalize(lerp(Normal, MeshNormal, NormalSmoothing));
+		}
+	}
+
 	FGBufferData GBuffer = (FGBufferData)0;
-	GBuffer.WorldNormal = normalize(In.WorldNormal);
+	GBuffer.WorldNormal = Normal;
 	GBuffer.BaseColor = saturate(Baked * AlbedoScale * LitBlend);
 	GBuffer.Metallic = 0.0;
 	GBuffer.Specular = LitSpecular * LitBlend; // At LitBlend 0 nothing reflects either: exactly the unlit look

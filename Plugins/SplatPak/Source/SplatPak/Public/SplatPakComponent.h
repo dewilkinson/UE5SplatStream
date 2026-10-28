@@ -190,6 +190,11 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "SplatPak|Lighting", meta = (ClampMin = "0.0", ClampMax = "1.0", EditCondition = "bLit"))
 	float LitSpecular = 0.5f;
 
+	// The splats' own normals are noisy. Where a disc lies on the shadow mesh's surface, its normal leans this far toward the
+	// mesh's smooth one: 0 keeps the splat's, 1 takes the mesh's. Needs a package with a shadow mesh (format 12 or later).
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "SplatPak|Lighting", meta = (ClampMin = "0.0", ClampMax = "1.0", EditCondition = "bLit"))
+	float NormalSmoothing = 0.7f;
+
 	UFUNCTION(BlueprintCallable, Category = "SplatPak|Lighting")
 	void SetLighting(bool bNewLit, float NewLitBlend, float NewAlbedoScale, float NewRoughness, float NewSpecular);
 

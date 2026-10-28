@@ -248,3 +248,8 @@ Problems found and fixed on the way (all in the demo scripts, not the plugin):
 - Lit mode draws discs only, without the gap fill. Next steps: smoother normals (from the shadow mesh), lit Gaussians
   through a deferred pass of their own, and a de-lit albedo from the baker.
 - Test case: the demo's `Map_LitDemo` (BP_Cthulhu beside BP_Cthulhu_Lit; `Scripts\BuildLitDemo.ps1 -Check`).
+- Normal smoothing (same day): the splats' normals made the lit scan grainy, so the lit pass first rasterises the shadow
+  mesh's smooth vertex normals (area-weighted, computed once on the CPU) and clip w into a screen-sized target, and each
+  lit disc within 3% of the model's size of that surface leans its normal toward the mesh's by **Normal Smoothing**
+  (default 0.7). The demo check gained a capture with smoothing off. A transient depth target created without
+  `TexCreate_ShaderResource` tripped a D3D12 barrier assertion (deny-SRV resource transitioned to SRV); it has the flag now.

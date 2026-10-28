@@ -31,11 +31,13 @@ design record in [docs/](../../docs/README.md): decisions, plan and journal.
 - **Lit mode** (the component's **Lighting** settings, `Lit`): the discs are written into Unreal's GBuffer right after
   the base pass (`PostRenderBasePassDeferred_RenderThread`: scene colour plus GBufferA-C, depth-writing), so the scene's
   lights, their shadows (virtual shadow maps included) and Lumen shade them. Each disc's normal is a point record's
-  stored normal or a splat's shortest axis, turned to face the camera. The stored colour is baked light, so **Lit
+  stored normal or a splat's shortest axis, turned to face the camera. Those are noisy, so where a disc lies on the
+  shadow mesh's surface (within 3% of the model's size) its normal leans toward the mesh's smooth vertex normal by
+  **Normal Smoothing** (default 0.7; a screen-sized normal pass of the shadow mesh before the discs). The stored colour is baked light, so **Lit
   Blend** splits it: 0 keeps it all emissive (the unlit look), 1 makes it all albedo; **Albedo Scale**, **Lit
   Roughness** and **Lit Specular** set the rest of the surface. Lit mode always draws discs (no Gaussians) and no gap
   fill, and needs the deferred renderer without Substrate (otherwise the scan draws unlit). It is a first step: the
-  per-splat normals are noisy, and the albedo is the baked colour, not a de-lit one. The demo's `Map_LitDemo` (built by
+  albedo is the baked colour, not a de-lit one. The demo's `Map_LitDemo` (built by
   its `Scripts\BuildLitDemo.ps1`, `-Check` for captures) shows the unlit and the lit Cthulhu side by side.
 - **Shadows, Lumen and collision from the shadow mesh** (format v12): importing a package that carries one also creates
   `<name>_ShadowMesh`, a static mesh with three LODs following the model's visible surface (distance field on,

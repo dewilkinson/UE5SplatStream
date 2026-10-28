@@ -10,6 +10,7 @@
 #include "RenderGraphUtils.h"
 #include "RenderUtils.h"
 #include "SceneRendering.h"
+#include "SystemTextures.h"
 
 IMPLEMENT_GLOBAL_SHADER(FSplatPakDiscAS, "/Plugin/SplatPak/Private/SplatPakDisc.usf", "MainAS", SF_Amplification);
 IMPLEMENT_GLOBAL_SHADER(FSplatPakDiscMS, "/Plugin/SplatPak/Private/SplatPakDisc.usf", "MainMS", SF_Mesh);
@@ -24,6 +25,8 @@ IMPLEMENT_GLOBAL_SHADER(FSplatPakGaussianVS, "/Plugin/SplatPak/Private/SplatPakG
 IMPLEMENT_GLOBAL_SHADER(FSplatPakGaussianPS, "/Plugin/SplatPak/Private/SplatPakGaussian.usf", "MainPS", SF_Pixel);
 IMPLEMENT_GLOBAL_SHADER(FSplatPakMeshVS, "/Plugin/SplatPak/Private/SplatPakMesh.usf", "MainVS", SF_Vertex);
 IMPLEMENT_GLOBAL_SHADER(FSplatPakMeshPS, "/Plugin/SplatPak/Private/SplatPakMesh.usf", "MainPS", SF_Pixel);
+IMPLEMENT_GLOBAL_SHADER(FSplatPakMeshNormalVS, "/Plugin/SplatPak/Private/SplatPakMesh.usf", "MainNormalVS", SF_Vertex);
+IMPLEMENT_GLOBAL_SHADER(FSplatPakMeshNormalPS, "/Plugin/SplatPak/Private/SplatPakMesh.usf", "MainNormalPS", SF_Pixel);
 IMPLEMENT_GLOBAL_SHADER(FSplatPakOccRasterCS, "/Plugin/SplatPak/Private/SplatPakOcclusion.usf", "OccRasterCS", SF_Compute);
 
 static TAutoConsoleVariable<int32> CVarSplatPakMeshShaders(
@@ -109,6 +112,7 @@ void FSplatPakDrawable::UnregisterDrawable()
 	ShadowPositionBuffer.SafeRelease();
 	ShadowColourBuffer.SafeRelease();
 	ShadowIndexBuffer.SafeRelease();
+	ShadowNormalBuffer.SafeRelease();
 }
 
 void FSplatPakDrawable::SetStreamSource_RenderThread(FSplatPakStreamSourcePtr Source)
@@ -250,6 +254,12 @@ void FSplatPakDrawable::AddDiscs(FRDGBuilder& GraphBuilder, const FViewInfo& Vie
 	Parameters->LitRoughness = FMath::Clamp(Settings.LitRoughness, 0.0f, 1.0f);
 	Parameters->LitSpecular = FMath::Clamp(Settings.LitSpecular, 0.0f, 1.0f);
 	Parameters->AlbedoScale = FMath::Max(Settings.AlbedoScale, 0.0f);
+	// Normal smoothing (lit mode): the shadow mesh's normals where a disc lies within 3% of the model's size of its surface
+	FRDGTextureRef MeshNormals = (bGBuffer && Settings.NormalSmoothing > 0.0f)
+		? AddMeshNormalPass(GraphBuilder, View, Parameters->ModelToClip, Parameters->ModelToWorldNormal, SceneDepth) : nullptr;
+	Parameters->MeshNormalTexture = MeshNormals ? MeshNormals : GSystemTextures.GetBlackDummy(GraphBuilder);
+	Parameters->NormalSmoothing = MeshNormals ? FMath::Clamp(Settings.NormalSmoothing, 0.0f, 1.0f) : 0.0f;
+	Parameters->MeshNormalTolerance = 0.03f * FMath::Max3(Data.QuantExtents.X, Data.QuantExtents.Y, Data.QuantExtents.Z) * (float)ModelToWorld.GetMaximumAxisScale();
 
 	// Occlusion culling (mesh-shader path): the occluder mesh rasterised from the view into a small depth grid,
 	// which the amplification shader tests each meshlet against (SplatPakOcclusion.ush)
@@ -470,6 +480,84 @@ void FSplatPakDrawable::AddMeshFillPasses(FRDGBuilder& GraphBuilder, const FView
 		FRDGBufferRef Indices = Upload(ShadowIndexBuffer, sizeof(uint32), ShadowIndexCount, Data.ShadowIndices.data(), TEXT("SplatPak.ShadowIndices"));
 		Draw(Positions, Colours, Indices, ShadowIndexCount - ShadowIndexCount % 3, false, TEXT("ShadowMeshFill"));
 	}
+}
+
+FRDGTextureRef FSplatPakDrawable::AddMeshNormalPass(FRDGBuilder& GraphBuilder, const FViewInfo& View, const FMatrix44f& ModelToClip,
+	const FMatrix44f& ModelToWorldNormal, FRDGTextureRef SceneDepth) const
+{
+	const SplatCore::FDecodedLevel& Data = *Level;
+	const uint32 IndexCount = (uint32)(Data.ShadowIndices.size() - Data.ShadowIndices.size() % 3);
+	const uint32 VertexCount = (uint32)Data.ShadowPositions.size();
+	if (IndexCount < 3 || VertexCount == 0)
+	{
+		return nullptr;
+	}
+	// Smooth vertex normals, once: each triangle's area-weighted normal summed into its corners
+	if (ShadowNormals.size() != (size_t)VertexCount * 3)
+	{
+		std::vector<FVector3f> Sum(VertexCount, FVector3f::ZeroVector);
+		for (uint32 i = 0; i < IndexCount; i += 3)
+		{
+			const uint32 A = Data.ShadowIndices[i], B = Data.ShadowIndices[i + 1], C = Data.ShadowIndices[i + 2];
+			if (A >= VertexCount || B >= VertexCount || C >= VertexCount) continue;
+			const FVector3f PA = ToVector3f(Data.ShadowPositions[A]), PB = ToVector3f(Data.ShadowPositions[B]), PC = ToVector3f(Data.ShadowPositions[C]);
+			const FVector3f N = FVector3f::CrossProduct(PB - PA, PC - PA); // Length is twice the area
+			Sum[A] += N; Sum[B] += N; Sum[C] += N;
+		}
+		ShadowNormals.resize((size_t)VertexCount * 3);
+		for (uint32 v = 0; v < VertexCount; v++)
+		{
+			const FVector3f N = Sum[v].GetSafeNormal();
+			ShadowNormals[v * 3] = N.X; ShadowNormals[v * 3 + 1] = N.Y; ShadowNormals[v * 3 + 2] = N.Z;
+		}
+	}
+	auto Upload = [&GraphBuilder](TRefCountPtr<FRDGPooledBuffer>& Pooled, uint32 Stride, uint32 Count, const void* Bytes, const TCHAR* Name) -> FRDGBufferRef
+	{
+		if (Pooled.IsValid()) return GraphBuilder.RegisterExternalBuffer(Pooled);
+		FRDGBufferRef Buffer = GraphBuilder.CreateBuffer(FRDGBufferDesc::CreateStructuredDesc(Stride, FMath::Max(Count, 1u)), Name);
+		GraphBuilder.QueueBufferUpload(Buffer, Bytes, (uint64)Stride * Count, ERDGInitialDataFlags::NoCopy);
+		Pooled = GraphBuilder.ConvertToExternalBuffer(Buffer);
+		return Buffer;
+	};
+
+	const FIntPoint Extent = SceneDepth->Desc.Extent;
+	FRDGTextureRef Normals = GraphBuilder.CreateTexture(FRDGTextureDesc::Create2D(Extent, PF_FloatRGBA, FClearValueBinding::Transparent,
+		TexCreate_RenderTargetable | TexCreate_ShaderResource), TEXT("SplatPak.MeshNormals"));
+	FRDGTextureRef Depth = GraphBuilder.CreateTexture(FRDGTextureDesc::Create2D(Extent, PF_DepthStencil, FClearValueBinding::DepthFar,
+		TexCreate_DepthStencilTargetable | TexCreate_ShaderResource), TEXT("SplatPak.MeshNormalsDepth")); // Readable too: D3D12 asserts when the graph transitions a deny-SRV target
+
+	FSplatPakMeshNormalParameters* P = GraphBuilder.AllocParameters<FSplatPakMeshNormalParameters>();
+	P->MeshPositions = GraphBuilder.CreateSRV(Upload(ShadowPositionBuffer, sizeof(float), VertexCount * 3, Data.ShadowPositions.data(), TEXT("SplatPak.ShadowPositions")));
+	P->MeshNormals = GraphBuilder.CreateSRV(Upload(ShadowNormalBuffer, sizeof(float), VertexCount * 3, ShadowNormals.data(), TEXT("SplatPak.ShadowNormals")));
+	P->MeshIndices = GraphBuilder.CreateSRV(Upload(ShadowIndexBuffer, sizeof(uint32), (uint32)Data.ShadowIndices.size(), Data.ShadowIndices.data(), TEXT("SplatPak.ShadowIndices")));
+	P->ModelToClip = ModelToClip;
+	P->ModelToWorldNormal = ModelToWorldNormal;
+	P->RenderTargets[0] = FRenderTargetBinding(Normals, ERenderTargetLoadAction::EClear);
+	P->RenderTargets.DepthStencil = FDepthStencilBinding(Depth, ERenderTargetLoadAction::EClear, ERenderTargetLoadAction::ENoAction, FExclusiveDepthStencil::DepthWrite_StencilNop);
+
+	FGlobalShaderMap* ShaderMap = GetGlobalShaderMap(View.FeatureLevel);
+	TShaderMapRef<FSplatPakMeshNormalVS> VertexShader(ShaderMap);
+	TShaderMapRef<FSplatPakMeshNormalPS> PixelShader(ShaderMap);
+	const FIntRect ViewRect = View.ViewRect;
+	GraphBuilder.AddPass(RDG_EVENT_NAME("SplatPak.MeshNormals (%u triangles)", IndexCount / 3), P, ERDGPassFlags::Raster,
+		[P, VertexShader, PixelShader, ViewRect, IndexCount](FRHICommandList& RHICmdList)
+		{
+			RHICmdList.SetViewport(ViewRect.Min.X, ViewRect.Min.Y, 0.0f, ViewRect.Max.X, ViewRect.Max.Y, 1.0f);
+			FGraphicsPipelineStateInitializer PSOInit;
+			RHICmdList.ApplyCachedRenderTargets(PSOInit);
+			PSOInit.BlendState = TStaticBlendState<>::GetRHI();
+			PSOInit.RasterizerState = TStaticRasterizerState<FM_Solid, CM_None>::GetRHI();
+			PSOInit.DepthStencilState = TStaticDepthStencilState<true, CF_DepthNearOrEqual>::GetRHI();
+			PSOInit.PrimitiveType = PT_TriangleList;
+			PSOInit.BoundShaderState.VertexDeclarationRHI = GEmptyVertexDeclaration.VertexDeclarationRHI;
+			PSOInit.BoundShaderState.VertexShaderRHI = VertexShader.GetVertexShader();
+			PSOInit.BoundShaderState.PixelShaderRHI = PixelShader.GetPixelShader();
+			SetGraphicsPipelineState(RHICmdList, PSOInit, 0);
+			SetShaderParameters(RHICmdList, VertexShader, VertexShader.GetVertexShader(), *P);
+			SetShaderParameters(RHICmdList, PixelShader, PixelShader.GetPixelShader(), *P);
+			RHICmdList.DrawPrimitive(0, IndexCount / 3, 1);
+		});
+	return Normals;
 }
 
 void FSplatPakDrawable::SetStreamFrame_RenderThread(TArray<SplatCore::FMeshlet>&& Meshlets)
