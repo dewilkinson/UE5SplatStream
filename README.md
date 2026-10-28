@@ -4,9 +4,10 @@ The home of **SplatPak**, an Unreal Engine 5 plugin that renders compressed 3D G
 Unreal's own renderer, so they sit in a level next to Nanite meshes and occlude them correctly.
 It's a port of the DirectX 12 renderer in [splatpak](https://github.com/dewilkinson/splatpak).
 
-> **Status: early development (step 1 of 5).** The `.gstx` loader and its tests pass; the Unreal
-> side is being brought up on UE 5.8 and hasn't been seen rendering yet. See
-> [docs/plan.md](docs/plan.md) for exactly what's verified and what's next.
+> **Status: early development.** Renders on UE 5.8.4: `.gstx` format 14, streaming levels of detail, shadows,
+> Lumen and collision from the package's shadow mesh, a first lit mode (the discs written into the GBuffer), and
+> SoundStage scene assets as a first concept. See the plugin's [README](Plugins/SplatPak/README.md) for what works
+> and its known gaps, and [docs/](docs/README.md) for the plan and the journal.
 
 ## What's here
 

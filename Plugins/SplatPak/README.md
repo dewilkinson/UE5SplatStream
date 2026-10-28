@@ -1,12 +1,13 @@
 # SplatPak
 
-Renders `.gstx` packages (compressed 3D Gaussian splat scans; older `.sflw` packages too) inside Unreal's renderer.
+Renders `.gstx` packages (compressed 3D Gaussian splat scans) inside Unreal's renderer.
 A port of the DX12 renderer in [splatpak](https://github.com/dewilkinson/splatpak), following the
 design record in [docs/](../../docs/README.md): decisions, plan and journal.
 
 ## Status: opaque discs, streaming
 
-- Import a `.gstx` by dragging it into the Content Browser (format v4 to v12; older `.sflw` packages too).
+- Import a `.gstx` by dragging it into the Content Browser (format 14, the only version read; an older package, or
+  an `.sflw`, is refused with a prompt to bake it again in SplatPak).
 - Place a **SplatPak Actor**, or add a **SplatPak Component** to any actor, and assign the asset.
 - **Streaming** (on by default, the component's **Streaming** category): the model streams the way SplatPak streams it.
   The codec library's streaming runtime decides, under a simulated bandwidth, which blocks of which levels are
