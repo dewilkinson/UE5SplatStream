@@ -301,6 +301,7 @@ void FSplatPakDrawable::AddDiscs(FRDGBuilder& GraphBuilder, const FViewInfo& Vie
 	const bool bGrade = CVarSplatPakColourMatch.GetValueOnRenderThread() != 0;
 	Parameters->ColourGain = bGrade ? Settings.ColourGain : FVector3f::OneVector;
 	Parameters->ColourOffset = bGrade ? Settings.ColourOffset : FVector3f::ZeroVector;
+	Parameters->ColourSaturation = bGrade ? Settings.ColourSaturation : 1.0f;
 	const bool bGBuffer = GBufferTargets != nullptr;
 	Parameters->ModelToWorldNormal = FMatrix44f(ModelToWorld.RemoveTranslation().Inverse().GetTransposed());
 	Parameters->LitMode = bGBuffer ? 1u : 0u;
@@ -758,6 +759,7 @@ void FSplatPakDrawable::AddGaussianPasses(FRDGBuilder& GraphBuilder, const FView
 		P->EmissiveIntensity = Disc.EmissiveIntensity;
 		P->ColourGain = Disc.ColourGain;
 		P->ColourOffset = Disc.ColourOffset;
+		P->ColourSaturation = Disc.ColourSaturation;
 		P->StreamFlags = Disc.StreamFlags | ModeFlags;
 		P->GlowIntensity = Disc.GlowIntensity;
 		P->GlowHue = Disc.GlowHue;

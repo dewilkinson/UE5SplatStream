@@ -388,3 +388,11 @@ Problems found and fixed on the way (all in the demo scripts, not the plugin):
   and loupe); the lighting is the scene's. G again puts every material and visibility back.
 - Removed the palace spec's `CthulhuHotspot` trigger (a 3 m sphere around Cthulhu, a placeholder since the stage was
   built that nothing listened to); it hid Cthulhu's shadow mesh in the geometry view. SS_BishopsPalace reimported.
+- Colour match strengthened (user: "doesn't seem to do much"). Measured first: Cthulhu was off (`"match": 0`), and the
+  rest took a near-uniform gain (vases and Akhenaten 1.7, at the old 2x cap times strength 0.7; the Buddhist Musician
+  0.73 to 0.80), since the palace stone is a near-neutral grey: brightness, hardly any colour. Now the grade also scales
+  saturation about the luminance (`ColourSaturation`, fitted as the room's chroma over luminance against the object's,
+  held to 0.5 .. 2; brightness contrast untouched, so the sheen stays), the gain cap is 3x, and Cthulhu matches at 0.5.
+  Fitted: Cthulhu gain 1.93 to 2.0 and saturation 0.84; vases 2.2 to 2.4, 0.65; Akhenaten 1.64 to 2.4, 0.65; the
+  Buddhist Musician 0.73 to 0.80, 0.76. On screen (tone mapped) Cthulhu goes from 145,143,133 to 171,171,163 beside a
+  wall of 183,180,171: lighter and a little greyer, toward the room.

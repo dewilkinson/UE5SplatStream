@@ -35,6 +35,7 @@ BEGIN_SHADER_PARAMETER_STRUCT(FSplatPakDiscParameters, )
 	SHADER_PARAMETER(float, EmissiveIntensity)
 	SHADER_PARAMETER(FVector3f, ColourGain)   // The colour grade (FSplatPakDrawSettings), linear
 	SHADER_PARAMETER(FVector3f, ColourOffset)
+	SHADER_PARAMETER(float, ColourSaturation)
 	SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<uint>, OccDepth) // Occlusion grid (SplatPakOcclusion.ush); one cleared element when culling is off
 	SHADER_PARAMETER(uint32, OcclusionCull)
 	SHADER_PARAMETER(uint32, OccWidth)
@@ -81,6 +82,7 @@ END_SHADER_PARAMETER_STRUCT()
 	SHADER_PARAMETER(float, EmissiveIntensity) \
 	SHADER_PARAMETER(FVector3f, ColourGain) \
 	SHADER_PARAMETER(FVector3f, ColourOffset) \
+	SHADER_PARAMETER(float, ColourSaturation) \
 	SHADER_PARAMETER(uint32, StreamFlags) \
 	SHADER_PARAMETER(float, GlowIntensity) \
 	SHADER_PARAMETER(float, GlowHue) \

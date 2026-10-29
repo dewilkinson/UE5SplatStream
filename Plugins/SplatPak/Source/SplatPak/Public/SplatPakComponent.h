@@ -284,13 +284,17 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "SplatPak|Drop Shadow")
 	void SetDropShadow(bool bEnabled, FVector Direction, float Opacity, float FloorZ, FBox Box);
 
-	// A colour grade on the stored colour, in linear space: colour * ColourGain + ColourOffset (RGB; alpha unused).
-	// MatchColours sets it; it can also be set by hand.
+	// A colour grade on the stored colour, in linear space: the colour times ColourGain, its saturation scaled by
+	// ColourSaturation about its luminance, plus ColourOffset (RGB; alpha unused). MatchColours sets it; it can also be
+	// set by hand.
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "SplatPak|Colour Match")
 	FLinearColor ColourGain = FLinearColor::White;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "SplatPak|Colour Match")
 	FLinearColor ColourOffset = FLinearColor(0.0f, 0.0f, 0.0f, 0.0f);
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "SplatPak|Colour Match", meta = (ClampMin = "0.0"))
+	float ColourSaturation = 1.0f;
 
 	// Grades this scan's colours toward the scene around it, so an object captured under other light and white balance
 	// sits in the room rather than on top of it: a gain per channel, in linear colour, moving its mean colour toward

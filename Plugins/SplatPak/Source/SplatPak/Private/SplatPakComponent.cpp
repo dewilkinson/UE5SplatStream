@@ -193,6 +193,7 @@ FPrimitiveSceneProxy* USplatPakComponent::CreateSceneProxy()
 	Settings.bEnvironment = SplatPakAsset && SplatPakAsset->bEnvironmentScene;
 	Settings.ColourGain = FVector3f(ColourGain.R, ColourGain.G, ColourGain.B);
 	Settings.ColourOffset = FVector3f(ColourOffset.R, ColourOffset.G, ColourOffset.B);
+	Settings.ColourSaturation = ColourSaturation;
 	Settings.bDropShadow = bDropShadow && DropShadowDirection.Z < -0.05;
 	Settings.DropShadowDirection = FVector3f(DropShadowDirection.GetSafeNormal());
 	Settings.DropShadowOpacity = DropShadowOpacity;
@@ -371,6 +372,19 @@ namespace
 		OutMean = FVector3f(Mean);
 		OutStd = FVector3f((float)FMath::Sqrt(FMath::Max(Var.X, 1e-8)), (float)FMath::Sqrt(FMath::Max(Var.Y, 1e-8)), (float)FMath::Sqrt(FMath::Max(Var.Z, 1e-8)));
 	}
+
+	// How saturated the colours are: their mean distance from their own grey (Rec. 709 luminance) over their mean luminance
+	float ColourSaturationIndex(const TArray<FVector3f>& Colours)
+	{
+		double Chroma = 0.0, Luma = 0.0;
+		for (const FVector3f& C : Colours)
+		{
+			const float Y = 0.2126f * C.X + 0.7152f * C.Y + 0.0722f * C.Z;
+			Chroma += (C - FVector3f(Y)).Size();
+			Luma += Y;
+		}
+		return (float)(Chroma / FMath::Max(Luma, 1e-6));
+	}
 }
 
 bool USplatPakComponent::MatchColours(USplatPakComponent* Scene, float Strength, float RadiusCm)
@@ -398,21 +412,26 @@ bool USplatPakComponent::MatchColours(USplatPakComponent* Scene, float Strength,
 	ColourStats(Own->Colours, OwnMean, OwnStd);
 	ColourStats(Near, RoomMean, RoomStd);
 	MatchedRoomColour = FLinearColor(RoomMean.X, RoomMean.Y, RoomMean.Z, 1.0f);
-	// A gain per channel, RoomMean / OwnMean (a white balance and exposure shift, held to 0.5 .. 2): the object takes the
+	// A gain per channel, RoomMean / OwnMean (a white balance and exposure shift, held to 1/3 .. 3): the object takes the
 	// room's light and colour cast but keeps its own contrast. Moving its spread to the room's as well (a full colour
 	// transfer) flattened a glossy sculpture's highlights to the matte stone around it.
 	const float S = FMath::Clamp(Strength, 0.0f, 1.0f);
 	FVector3f Gain, Offset = FVector3f::ZeroVector;
 	for (int32 c = 0; c < 3; c++)
 	{
-		const float A = FMath::Clamp(RoomMean[c] / FMath::Max(OwnMean[c], 1e-4f), 0.5f, 2.0f);
+		const float A = FMath::Clamp(RoomMean[c] / FMath::Max(OwnMean[c], 1e-4f), 1.0f / 3.0f, 3.0f);
 		Gain[c] = FMath::Lerp(1.0f, A, S);
 	}
+	// And the saturation, toward the room's (its chroma over its luminance, ColourSaturationIndex; held to 0.5 .. 2): the
+	// part of a superimposed look a gain cannot reach, which leaves the brightness contrast, and so the sheen, alone
+	const float OwnSat = ColourSaturationIndex(Own->Colours), RoomSat = ColourSaturationIndex(Near);
+	const float NewSaturation = FMath::Lerp(1.0f, FMath::Clamp(RoomSat / FMath::Max(OwnSat, 1e-4f), 0.5f, 2.0f), S);
 	const FLinearColor NewGain(Gain.X, Gain.Y, Gain.Z, 1.0f), NewOffset(Offset.X, Offset.Y, Offset.Z, 0.0f);
-	if (!NewGain.Equals(ColourGain, 1e-4f) || !NewOffset.Equals(ColourOffset, 1e-4f))
+	if (!NewGain.Equals(ColourGain, 1e-4f) || !NewOffset.Equals(ColourOffset, 1e-4f) || !FMath::IsNearlyEqual(NewSaturation, ColourSaturation, 1e-4f))
 	{
 		ColourGain = NewGain;
 		ColourOffset = NewOffset;
+		ColourSaturation = NewSaturation;
 		MarkRenderStateDirty(); // The grade travels with a new proxy
 	}
 	return true;
@@ -420,10 +439,11 @@ bool USplatPakComponent::MatchColours(USplatPakComponent* Scene, float Strength,
 
 void USplatPakComponent::ClearColourMatch()
 {
-	if (!ColourGain.Equals(FLinearColor::White) || !ColourOffset.Equals(FLinearColor(0, 0, 0, 0)))
+	if (!ColourGain.Equals(FLinearColor::White) || !ColourOffset.Equals(FLinearColor(0, 0, 0, 0)) || ColourSaturation != 1.0f)
 	{
 		ColourGain = FLinearColor::White;
 		ColourOffset = FLinearColor(0.0f, 0.0f, 0.0f, 0.0f);
+		ColourSaturation = 1.0f;
 		MarkRenderStateDirty();
 	}
 }

@@ -274,6 +274,7 @@ float    PreExposure;
 float    EmissiveIntensity;
 float3   ColourGain;                  // The colour grade, linear: colour * ColourGain + ColourOffset
 float3   ColourOffset;
+float    ColourSaturation;            // The grade's saturation, about the luminance, after the gain
 uint     StreamFlags;                 // Bit 2: Refinement Visualizer (arrival glow); SplatPak's splat display (r.SplatPak.SplatViz): 4 outlines, 8 a random colour per meshlet, 16 centres; 32: an environment
 float    GlowIntensity;
 float    GlowHue;
@@ -375,6 +376,15 @@ float3 GaussianSRGBToLinear(float3 C)
 	const float3 Lo = C / 12.92;
 	const float3 Hi = pow(max(C + 0.055, 0.0) / 1.055, 2.4);
 	return float3(C.x <= 0.04045 ? Lo.x : Hi.x, C.y <= 0.04045 ? Lo.y : Hi.y, C.z <= 0.04045 ? Lo.z : Hi.z);
+}
+
+// The colour grade (USplatPakComponent::MatchColours), on a linear colour: the gain, the saturation about the luminance,
+// the offset
+float3 GaussianGrade(float3 C)
+{
+	C *= ColourGain;
+	const float Y = dot(C, float3(0.2126, 0.7152, 0.0722));
+	return max(Y + (C - Y) * ColourSaturation + ColourOffset, 0.0);
 }
 
 FGaussianVSOut CulledGaussian()
@@ -524,7 +534,7 @@ void MainVS(uint VertexId : SV_VertexID, out FGaussianVSOut Out)
 	Out.Position = Clip + float4((Corner.x * V1 + Corner.y * V2) * C * ClipS, 0.0, 0.0);
 	Out.UV = (Corner * ClipS) * 0.5 + 0.5;
 	Out.Color = (DebugView != 0u || bSolid) ? GaussianSRGBToLinear(saturate(Color)) * PreExposure
-		: max(GaussianSRGBToLinear(saturate(Color)) * ColourGain + ColourOffset, 0.0) * EmissiveIntensity * PreExposure;
+		: GaussianGrade(GaussianSRGBToLinear(saturate(Color))) * EmissiveIntensity * PreExposure;
 	Out.Alpha = Opacity;
 }
 

@@ -27,10 +27,12 @@ struct FSplatPakDrawSettings
 	float Coverage = 1.2f;    // Disc radius as a multiple of the level's point spacing (Auto Splat Size)
 	ESplatPakOrient Orient = ESplatPakOrient::Disc;
 	float EmissiveIntensity = 1.0f; // Multiplies the stored colour, which is drawn as emissive light
-	// A colour grade on the stored colour in linear space, colour * Gain + Offset (USplatPakComponent::MatchColours fits
-	// it to the scene around an object, so a sculpture's own capture lighting and white balance meet the room's)
+	// A colour grade on the stored colour in linear space: colour * Gain, its saturation scaled by Saturation about its
+	// luminance, + Offset (USplatPakComponent::MatchColours fits it to the scene around an object, so a sculpture's own
+	// capture lighting, white balance and saturation meet the room's)
 	FVector3f ColourGain = FVector3f::OneVector;
 	FVector3f ColourOffset = FVector3f::ZeroVector;
+	float ColourSaturation = 1.0f;
 	// Streaming only (FSplatPakStreamSource): the cross-fade dither and the Refinement Visualizer's arrival glow
 	bool  bDitheredTransitions = true;
 	bool  bRefinementVisualizer = true;
