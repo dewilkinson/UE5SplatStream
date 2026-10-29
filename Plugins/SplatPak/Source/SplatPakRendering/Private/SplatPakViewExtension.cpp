@@ -72,8 +72,11 @@ void FSplatPakViewExtension::PrePostProcessPass_RenderThread(FRDGBuilder& GraphB
 		Drawable->AddDiscPass(GraphBuilder, ViewInfo, SceneColor, SceneDepth);
 	}
 
-	// The objects' drop shadows on the floor (see SplatPakDropShadow.h), then the veil over everything the view drew,
-	// before post-processing (see SplatPakVeil.h)
-	SplatPakDropShadow::AddPasses(GraphBuilder, ViewInfo, Ordered, SceneColor, SceneDepth);
+	// The objects' drop shadows on the floor (see SplatPakDropShadow.h; not over SplatPak's own buffer views), then the
+	// veil over everything the view drew, before post-processing (see SplatPakVeil.h)
+	if (FSplatPakDrawable::GetDebugView_RenderThread() == 0)
+	{
+		SplatPakDropShadow::AddPasses(GraphBuilder, ViewInfo, Ordered, SceneColor, SceneDepth);
+	}
 	SplatPakVeil::AddPass(GraphBuilder, ViewInfo, SceneColor);
 }

@@ -346,3 +346,45 @@ Problems found and fixed on the way (all in the demo scripts, not the plugin):
   Cthulhu now has its dark bronze and gold highlights, as in SplatPak.
 - Demo: Shift toggles running, H resets the view, E restreams the ornaments only (without the veil), the vases hide
   while the eye is in the stairwell (a stopgap: splat walls write no depth), a controls legend bottom left.
+
+## 2026-10-29: the loupe, meshlets, the LOD view
+
+- User asked for a loupe (L) like SplatPak's, centred where the mouse looks, cycling the same display modes as O. The
+  walker's loupe is a scene capture from the camera, square, 8x closer (] in and [ out, held, as SplatPak's; the wheel
+  too), drawn by the HUD bottom right above the keys with a frame at the middle of the view marking what it shows. The
+  plugin draws scene captures in `r.SplatPak.Loupe` (-1 as the main view, else a splat display mode as below), every
+  scan, outlines first; O cycles it while the loupe is open, the ornaments otherwise. Chosen over a second pass inside
+  the view extension: the capture gets the whole frame (depth, the occluders, post-processing) for free, and the
+  Gaussians are sorted per view on the GPU anyway.
+- O now cycles SplatPak's splat display modes, as the user named them: splat, meshlets, centres, outlines (user: "use
+  the modes from splatpak app"); the opaque discs left the cycle. `r.SplatPak.SplatViz` replaces `r.SplatPak.Outline`
+  (0 normal, 1 outlines, 2 meshlets, 3 centres, SplatPak's `g_SplatViz` numbering;
+  `r.SplatPak.SplatViz.Scope` 1 objects, 2 every scan), each ported from SplatPak's SplatVizShade: outlines a line at
+  each Gaussian's half-maximum contour over a faint fill (the old 0.6-to-1 ring overlapped into a solid surface on a
+  dense scan), meshlets flat opaque ellipses over that footprint in SplatVizColor hues (the user's "opaque nanite-style
+  coloured ellipses"; user then chose one colour per meshlet, keyed by its first record so it holds steady; SplatPak colours per splat), centres a three-pixel dot per splat and nothing else.
+- "Cthulhu disappears in the LOD view when pressing E, after it reaches level 0": reproduced; it was there, level 0 red
+  on the wall's level 0 red. The LOD view's colours are now shaded by how squarely each splat faces the eye (as
+  Nanite's views are), so a scan keeps its shape against a background at its own level. The plinths hide in that view
+  (the walker hides them from the view and the loupe), and no SplatPak buffer view draws the drop shadows.
+- G no longer cycles Unreal's GBuffer views (user: the splats are not geometry, the views were useless): the final
+  image, then SplatPak's four. Q quits.
+- O now sets the splat display for every scan, the palace too (user: in points mode the scene's points, ellipses and
+  outlines show as well, to compare the model's splats with the scene's); an environment's centres are a cool blue, an
+  object's SplatPak's yellow, since the same colour hid Cthulhu's dense centres in the palace's. Shift+O cycles the
+  loupe's mode alone, O brings it back in step. Shift now toggles the run on the release of a tap, so Shift+O and the
+  Shift strafe leave the run as it is. The loupe opens at the start, in outlines; H resets every setting and toggle with
+  the view.
+- The loupe's default zoom is 34.4x, so its viewfinder (the frame at the middle of the view, `ClipX / zoom` across) is
+  about a centimetre on the demo laptop's screen (34.4 cm across 1920 pixels), close enough to see Cthulhu's ellipses
+  on the approach; F toggles the viewfinder alone, and the HUD shows the zoom. Shift+E restreams the scene's own scan
+  alone (the palace back to its two coarsest levels, no veil); E still restreams the ornaments alone.
+- G's first view is now SplatPak's LOD level (the stream's state, level 0 red), then colour, normal, depth.
+- G's last view is the SoundStage geometry (user, through the deck session): no splat drawn (the Gaussian, disc and fill
+  passes and the drop shadows off), the volumes as engine basic shapes of their size, the plinths and the sculptures'
+  shadow meshes, all in UE's default material (WorldGridMaterial), lit by the scene. Left out: the boundary (it walls the
+  stage in) and the palace's own shadow mesh (a coarse hull of the room that wraps the walker and hid every volume
+  inside it). The palace's hidden hull still keeps the sky light out, so this view raises the exposure 3 stops (camera
+  and loupe); the lighting is the scene's. G again puts every material and visibility back.
+- Removed the palace spec's `CthulhuHotspot` trigger (a 3 m sphere around Cthulhu, a placeholder since the stage was
+  built that nothing listened to); it hid Cthulhu's shadow mesh in the geometry view. SS_BishopsPalace reimported.

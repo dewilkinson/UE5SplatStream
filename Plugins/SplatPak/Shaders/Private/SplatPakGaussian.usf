@@ -274,7 +274,7 @@ float    PreExposure;
 float    EmissiveIntensity;
 float3   ColourGain;                  // The colour grade, linear: colour * ColourGain + ColourOffset
 float3   ColourOffset;
-uint     StreamFlags;                 // Bit 1: Refinement Visualizer (arrival glow)
+uint     StreamFlags;                 // Bit 2: Refinement Visualizer (arrival glow); SplatPak's splat display (r.SplatPak.SplatViz): 4 outlines, 8 a random colour per meshlet, 16 centres; 32: an environment
 float    GlowIntensity;
 float    GlowHue;
 float4   LevelRadii[2];               // Point spacing per level (model units): the coarse levels' scale cap
@@ -497,18 +497,33 @@ void MainVS(uint VertexId : SV_VertexID, out FGaussianVSOut Out)
 	}
 	else if (DebugView == 4u)
 	{
+		// The level's colour, shaded by how squarely the splat faces the eye (as Nanite's views shade theirs), so a scan
+		// keeps its shape against a background at the same level
 		static const float3 LevelColours[8] = { float3(1.0, 0.3, 0.3), float3(1.0, 0.7, 0.2), float3(0.9, 1.0, 0.3), float3(0.3, 1.0, 0.4),
 			float3(0.3, 0.9, 1.0), float3(0.4, 0.5, 1.0), float3(0.8, 0.4, 1.0), float3(1.0, 0.4, 0.8) };
-		Color = LevelColours[min(M.LodLevel, 7u)];
+		const uint K = (Scale.x <= Scale.y && Scale.x <= Scale.z) ? 0u : (Scale.y <= Scale.z ? 1u : 2u);
+		const float3 N = normalize(mul(float3(R[0][K], R[1][K], R[2][K]), A));
+		Color = LevelColours[min(M.LodLevel, 7u)] * (0.3 + 0.7 * abs(dot(N, normalize(ViewPos))));
+	}
+	// A random colour per meshlet (StreamFlags bit 8, r.SplatPak.SplatViz 2), unless a buffer view is showing
+	const bool bSolid = (StreamFlags & 8u) != 0;
+	if (bSolid && DebugView == 0u)
+	{
+		// A stable, saturated hue per meshlet (SplatPak's SplatVizColor), keyed by the meshlet's first record, which stays
+		// put while its place in the frame's render list changes
+		uint H = M.SplatOffset * 2654435761u;
+		H ^= H >> 15; H *= 2246822519u; H ^= H >> 13;
+		const float Hue = (float)(H & 0xFFFFu) / 65535.0;
+		Color = lerp(float3(0.25, 0.25, 0.25), saturate(abs(frac(Hue + float3(0.0, 2.0 / 3.0, 1.0 / 3.0)) * 6.0 - 3.0) - 1.0), 0.85);
 	}
 
-	// Shrink the quad to where the Gaussian times opacity falls below 1/255
-	const float ClipS = min(1.0, sqrt(max(0.0, log(Opacity * 255.0))) * 0.5);
+	// Shrink the quad to where the Gaussian times opacity falls below 1/255 (a solid ellipse keeps it whole)
+	const float ClipS = bSolid ? 1.0 : min(1.0, sqrt(max(0.0, log(Opacity * 255.0))) * 0.5);
 	const float2 Corner = GaussianCorners[GaussianVertexCorner[VertexId % 6u]];
 	// Unreal's projection flips nothing: clip y is up, as in SplatPak's D3D projection
 	Out.Position = Clip + float4((Corner.x * V1 + Corner.y * V2) * C * ClipS, 0.0, 0.0);
 	Out.UV = (Corner * ClipS) * 0.5 + 0.5;
-	Out.Color = DebugView != 0u ? GaussianSRGBToLinear(saturate(Color)) * PreExposure
+	Out.Color = (DebugView != 0u || bSolid) ? GaussianSRGBToLinear(saturate(Color)) * PreExposure
 		: max(GaussianSRGBToLinear(saturate(Color)) * ColourGain + ColourOffset, 0.0) * EmissiveIntensity * PreExposure;
 	Out.Alpha = Opacity;
 }
@@ -519,16 +534,41 @@ void MainPS(FGaussianVSOut In, out float4 OutColor : SV_Target0)
 	const float2 Centered = In.UV * 2.0 - 1.0;
 	const float D = dot(Centered, Centered);
 	if (D > 1.0) discard;
-	// Outline (StreamFlags bit 3, r.SplatPak.Outline): only each Gaussian's elliptical edge, a ring at its own opacity
+	const float EXP4 = 0.01831563888873418;
+	const float F = (exp(-4.0 * D) - EXP4) / (1.0 - EXP4);
+	// Outline (StreamFlags bit 4, r.SplatPak.SplatViz 1), as SplatPak's SplatVizShade draws it: a line about a pixel and a
+	// half wide at each Gaussian's half-maximum contour, its true size, shape and orientation, over a faint fill
 	if ((StreamFlags & 4u) != 0)
 	{
-		if (D < 0.6) discard;
-		const float Ring = In.Alpha * 0.85;
-		OutColor = float4(In.Color * Ring, Ring);
+		const float Mark = 1.0 - saturate(abs(F - 0.5) / (1.5 * max(fwidth(F), 1e-4)));
+		const float Alpha = max(Mark, F * In.Alpha * 0.35);
+		if (Alpha < 1.0 / 255.0) discard;
+		OutColor = float4(lerp(In.Color * 0.55, saturate(In.Color * 1.6 + 0.15), Mark) * Alpha, Alpha);
 		return;
 	}
-	const float EXP4 = 0.01831563888873418;
-	const float A = (exp(-4.0 * D) - EXP4) / (1.0 - EXP4) * In.Alpha;
+	// Splat centres (bit 16): a round dot about three pixels across at each centre, and nothing else, the sampling
+	// density. The quad's UV is affine on screen, so inverting its derivatives maps the UV offset to pixels
+	if ((StreamFlags & 16u) != 0)
+	{
+		const float2 Cx = ddx(Centered), Cy = ddy(Centered);
+		const float Det = Cx.x * Cy.y - Cx.y * Cy.x;
+		const float2 Px = (abs(Det) > 1e-12) ? float2(Cy.y * Centered.x - Cy.x * Centered.y, Cx.x * Centered.y - Cx.y * Centered.x) / Det : float2(1e6, 1e6);
+		const float Mark = 1.0 - saturate(length(Px) - 1.0);
+		if (Mark < 1.0 / 255.0) discard;
+		// An environment's centres in a cool blue, an object's in SplatPak's yellow, so the scene's splats tell from the models'
+		const float3 Dot = (StreamFlags & 32u) != 0 ? float3(0.35, 0.75, 1.0) : float3(1.0, 0.95, 0.4);
+		OutColor = float4(Dot * PreExposure * Mark, Mark);
+		return;
+	}
+	// A random colour per meshlet (bit 8): flat and opaque over the half-maximum footprint; drawn far to near, the nearest
+	// one shows, so coverage and overlap show
+	if ((StreamFlags & 8u) != 0)
+	{
+		if (F < 0.5) discard;
+		OutColor = float4(In.Color, 1.0);
+		return;
+	}
+	const float A = F * In.Alpha;
 	if (A < 1.0 / 255.0) discard;
 	OutColor = float4(In.Color * A, A);
 }

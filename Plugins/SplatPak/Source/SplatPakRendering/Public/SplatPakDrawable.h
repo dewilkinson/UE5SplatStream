@@ -106,6 +106,13 @@ public:
 	// drawable draws with AddDiscGBufferPass after the base pass instead of AddDiscPass.
 	bool DrawsLit(const FSceneView& View) const;
 
+	// Render thread: SplatPak's splat display for this scan's Gaussians in the view: 0 normal, 1 splat outlines, 2 a random
+	// colour per splat, 3 splat centres (r.SplatPak.SplatViz, and r.SplatPak.Loupe for scene captures)
+	int32 GetSplatViz(const FSceneView& View) const;
+
+	// Render thread: SplatPak's own buffer view (r.SplatPak.DebugView; 0 = the final colour)
+	static int32 GetDebugView_RenderThread();
+
 	// Render thread: lit mode. The discs into the base pass's scene colour and GBufferA-C (BasePassTargets), depth-tested
 	// and depth-writing.
 	void AddDiscGBufferPass(FRDGBuilder& GraphBuilder, const FViewInfo& View, const struct FRenderTargetBindingSlots& BasePassTargets) const;
