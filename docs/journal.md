@@ -448,3 +448,19 @@ Problems found and fixed on the way (all in the demo scripts, not the plugin):
   draws 28.6 ms; expand 9.9 ms; no disc pass (everything at level 0). Passes off: 19.3 ms.
 - So a compute rasteriser for small discs would target 0.3 ms. The sort's scan, Cthulhu's always-finest load (43 ms)
   and the loupe's second sort (18.7 ms) are where the time is. The share of discs under 2 px was not measured.
+
+## 2026-10-29: the demo at full bandwidth, and the backdrop's level
+
+- The palace demo streams at full bandwidth again: the walker sets `r.SplatPak.Streaming.BandwidthMBps` to 0 (no
+  shared budget; the stage's scans are unthrottled) at the start of play and on H. B cycles full, 100, 25, 5G (7.5),
+  4G (2) and 3G (0.2) MB/s; the HUD's top left shows the step, the rate now, the busy scans and the MB delivered. The
+  plugin's own default stays 25.
+- Reported: on Landing 1 facing up the stairs, the far wall stays blue in the LOD view. Measured: every level of the
+  backdrop was 100% resident (by 50 s at 25 MB/s, 15 s at full), so it was the drawn level, not loading: the distance
+  rule (LodPixelSpacing 1) draws that wall about 15 m away at the coarser levels. The backdrop never demotes
+  (releaseUnusedSegments off), so a block refined once stays at the finer level; walking the scene turns it red.
+- Tried the backdrop always finest, and LodPixelSpacing 0.5 and 0.25: each turns the far wall red but leaves holes
+  where the palace's finest level holds almost nothing and only the coarse levels' larger splats cover the surface
+  (the far doorway, the upper doors' lower half, the sky's edge). Kept as `ASoundStageActor::bBackdropAlwaysFinest`,
+  off by default. Red there without holes needs the runtime to keep a coarse block drawn where its finer blocks do not
+  cover it (a codec-library change, not made).

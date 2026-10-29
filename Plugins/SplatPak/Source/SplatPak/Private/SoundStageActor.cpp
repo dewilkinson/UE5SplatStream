@@ -112,6 +112,8 @@ void ASoundStageActor::BeginPlay()
 		}
 	}
 
+	BackdropComponent->bAlwaysFinest = bBackdropAlwaysFinest;
+
 	// With the shared budget: every scan streams from the start, its stream order and finest flag as its weight
 	StreamStep = INDEX_NONE;
 	if (Stage && GetWorld() && GetWorld()->IsGameWorld() && USplatPakStreamingSubsystem::IsArbiterActive())
@@ -307,6 +309,7 @@ void ASoundStageActor::Rebuild()
 	{
 		BackdropComponent->SetSplatPakAsset(Stage ? Stage->Backdrop.Get() : nullptr);
 	}
+	BackdropComponent->bAlwaysFinest = bBackdropAlwaysFinest;
 	if (!Stage) { return; }
 	for (const FSoundStageVolume& Volume : Stage->Volumes) { AddVolume(Volume); }
 	for (const FSoundStagePiece& Piece : Stage->Pieces) { AddPiece(Piece); }

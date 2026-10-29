@@ -51,6 +51,12 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "SoundStage", meta = (ClampMin = "0.0"))
 	float BackdropStreamPriority = 4.0f;
 
+	// The backdrop at its finest level wherever it is in view (USplatPakComponent::bAlwaysFinest), rather than at the
+	// coarser levels the distance rule picks for far surfaces. Off by default: on the palace the finest level leaves holes
+	// where only the coarse levels' larger splats cover a surface (the far doorway, the upper doors, the sky's edge).
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "SoundStage")
+	bool bBackdropAlwaysFinest = false;
+
 	// ---- Accessors ----
 
 	// Rebuilds everything from the asset (it also runs when the asset changes)
