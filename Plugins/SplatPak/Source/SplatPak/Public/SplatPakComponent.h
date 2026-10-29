@@ -72,12 +72,20 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "SplatPak|Streaming")
 	bool bStreaming = true;
 
-	// The simulated link, MB/s (3G 0.2, 4G 2, 5G 7.5). Ignored when Unthrottled.
+	// This scan's cap, MB/s (3G 0.2, 4G 2, 5G 7.5). The world's scans share one budget (r.SplatPak.Streaming.BandwidthMBps,
+	// USplatPakStreamingSubsystem); this caps this scan's share of it. With the budget off (0), the scan's own simulated
+	// link. Ignored when Unthrottled.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SplatPak|Streaming", meta = (ClampMin = "0.05", UIMax = "100.0", EditCondition = "bStreaming && !bUnthrottled"))
 	float BandwidthMBps = 2.0f;
 
+	// No cap of its own: as much of the shared budget as its weight earns (with the budget off, no throttle at all).
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SplatPak|Streaming", meta = (EditCondition = "bStreaming"))
 	bool bUnthrottled = false;
+
+	// This scan's weight in the shared budget, against the other scans that are still streaming (1 = even). Its need
+	// multiplies it: requests from the view waiting, and being on screen.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SplatPak|Streaming", meta = (ClampMin = "0.0", UIMax = "16.0", EditCondition = "bStreaming"))
+	float StreamPriority = 1.0f;
 
 	// Evicts a level's segments as soon as nothing draws them any more: zoom out or turn away, and the finer segments
 	// fade back to their coarser parents, then leave memory. The two coarsest levels always stay.
@@ -344,6 +352,11 @@ public:
 #endif
 
 private:
+	friend class USplatPakStreamingSubsystem; // Reads the runtime's counters and sets the grant below
+	float ArbiterGrantMBps = -1.0f;           // This frame's bandwidth from the world's budget (-1: none, the scan's own settings)
+	bool bArbiterPaused = false;              // Its credit is spent: no delivery this frame
+	bool bArbiterRegistered = false;          // Registered with the world's USplatPakStreamingSubsystem
+
 	void UpdateShadowMeshComponent();
 	void StartStream();                       // Every level ready: the runtime, from nothing but the two coarsest levels
 	void StopStream();

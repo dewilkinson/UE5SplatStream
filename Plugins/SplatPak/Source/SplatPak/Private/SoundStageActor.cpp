@@ -9,6 +9,7 @@
 #include "Engine/CollisionProfile.h"
 #include "SplatPakComponent.h"
 #include "SplatPakPedestal.h"
+#include "SplatPakStreamingSubsystem.h"
 #include "Camera/PlayerCameraManager.h"
 #include "Kismet/GameplayStatics.h"
 
@@ -111,9 +112,26 @@ void ASoundStageActor::BeginPlay()
 		}
 	}
 
-	// The stream sequence: the backdrop streams its view alone first (Conservative), the pieces held
+	// With the shared budget: every scan streams from the start, its stream order and finest flag as its weight
 	StreamStep = INDEX_NONE;
-	if (Stage && GetWorld() && GetWorld()->IsGameWorld())
+	if (Stage && GetWorld() && GetWorld()->IsGameWorld() && USplatPakStreamingSubsystem::IsArbiterActive())
+	{
+		int32 LastOrder = 0;
+		for (const FSoundStagePiece& Piece : Stage->Pieces) LastOrder = FMath::Max(LastOrder, Piece.StreamOrder);
+		BackdropComponent->StreamPriority = BackdropStreamPriority;
+		BackdropComponent->bGreedyEnvironment = true;
+		for (const FSoundStagePiece& Piece : Stage->Pieces)
+		{
+			ASplatPakPedestal* Pedestal = GetPiece(Piece.Name);
+			if (!Pedestal || !Pedestal->SculptureComponent) continue;
+			const float Priority = FMath::Pow(2.0f, (float)FMath::Min(LastOrder - Piece.StreamOrder, 8)) * (Piece.bAlwaysFinest ? 2.0f : 1.0f);
+			Pedestal->SculptureComponent->StreamPriority = Priority;
+			Pedestal->SculptureComponent->SetStreamHold(false);
+			UE_LOG(LogSoundStage, Log, TEXT("%s: %s streams at weight %.0f (order %d%s)"), *GetName(), *Piece.Name.ToString(), Priority, Piece.StreamOrder, Piece.bAlwaysFinest ? TEXT(", finest") : TEXT(""));
+		}
+	}
+	// Without it, the stream sequence: the backdrop streams its view alone first (Conservative), the pieces held
+	else if (Stage && GetWorld() && GetWorld()->IsGameWorld())
 	{
 		StreamOrders.Reset();
 		for (const FSoundStagePiece& Piece : Stage->Pieces)

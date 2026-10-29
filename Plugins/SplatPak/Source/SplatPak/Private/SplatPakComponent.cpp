@@ -6,6 +6,7 @@
 #include "SplatPakAsset.h"
 #include "SplatPakSceneProxy.h"
 #include "SplatPakStreamLevels.h"
+#include "SplatPakStreamingSubsystem.h"
 #include "SplatPakVeil.h"
 #include "SplatPakPackageCore.h"
 #include "ConvexVolume.h"
@@ -58,10 +59,16 @@ void USplatPakComponent::OnRegister()
 	Super::OnRegister();
 	UpdateShadowMeshComponent();
 	ArmLoadingVeil(); // A scan appearing: veiled until its view has loaded
+	bArbiterRegistered = false; // Joins the world's streaming budget on its first tick (a play world registers its components before its subsystems exist)
 }
 
 void USplatPakComponent::OnUnregister()
 {
+	if (UWorld* World = GetWorld())
+	{
+		if (USplatPakStreamingSubsystem* Streaming = World->GetSubsystem<USplatPakStreamingSubsystem>()) Streaming->Unregister(this);
+	}
+	bArbiterRegistered = false;
 	PublishVeil(0.0f);
 	bVeilArmed = false;
 	if (ShadowMeshComponent)
@@ -643,6 +650,14 @@ void USplatPakComponent::PushStreamSettings() const
 void USplatPakComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
 {
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
+	if (!bArbiterRegistered)
+	{
+		if (USplatPakStreamingSubsystem* Streaming = GetWorld() ? GetWorld()->GetSubsystem<USplatPakStreamingSubsystem>() : nullptr)
+		{
+			Streaming->Register(this);
+			bArbiterRegistered = true;
+		}
+	}
 	UpdateLoadingVeil(DeltaTime);
 	if (!bStreaming || !SplatPakAsset)
 	{
@@ -760,6 +775,13 @@ void USplatPakComponent::TickComponent(float DeltaTime, ELevelTick TickType, FAc
 	S.isStreamingPaused = false;
 	S.unthrottledBandwidth = bUnthrottled;
 	S.bandwidthThrottleMBps = BandwidthMBps;
+	if (ArbiterGrantMBps >= 0.0f)
+	{
+		// The world's shared budget (USplatPakStreamingSubsystem): this frame's grant, or nothing while its credit is spent
+		S.unthrottledBandwidth = false;
+		S.bandwidthThrottleMBps = FMath::Max(ArbiterGrantMBps, 0.001f);
+		S.isStreamingPaused = bArbiterPaused;
+	}
 	S.releaseUnusedSegments = bReleaseUnusedSegments;
 	S.streamingPolicy = StreamingPolicy == ESplatPakStreamingPolicy::Conservative ? Splat::StreamSettings::Policy::Conservative : Splat::StreamSettings::Policy::Greedy;
 	// Always finest: no cross-fades, so no refinement pacing either (the runtime caps the refinement starts per frame only

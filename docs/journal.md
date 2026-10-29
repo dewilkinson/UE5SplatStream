@@ -396,3 +396,55 @@ Problems found and fixed on the way (all in the demo scripts, not the plugin):
   Fitted: Cthulhu gain 1.93 to 2.0 and saturation 0.84; vases 2.2 to 2.4, 0.65; Akhenaten 1.64 to 2.4, 0.65; the
   Buddhist Musician 0.73 to 0.80, 0.76. On screen (tone mapped) Cthulhu goes from 145,143,133 to 171,171,163 beside a
   wall of 183,180,171: lighter and a little greyer, toward the room.
+
+## 2026-10-29: the shared streaming budget (phase 1)
+
+
+- Asked for by the user through the deck session: one bandwidth arbiter for every scan in a world, with no codec
+  changes. Each USplatPakComponent keeps its own StreamRuntime (residency depends on the instance's transform;
+  sharing a runtime per asset is phase 2).
+- New `USplatPakStreamingSubsystem` (UTickableWorldSubsystem, so editor, PIE and game each get their own;
+  `SplatPakStreamingSubsystem.h/.cpp`). Each tick it charges what each runtime delivered (the delivered-bytes
+  counter, or the delivery counter times the mean block size where evictions hide it) against that scan's credit,
+  weights the scans still streaming (StreamPriority x4 with view requests pending x2 when rendered in the last 0.2 s;
+  an idle scan, granted bandwidth but neither delivering nor requesting for 0.5 s, gets 0.05 of its priority as a
+  probe), and splits the tick's slice of the budget into the credits (at most 0.25 s banked). A scan in credit streams
+  its next frame with `bandwidthThrottleMBps` = credit / dt; a scan in debt is paused (`isStreamingPaused`). Debt is
+  needed because the runtime always lands at least one block when its budget is positive and carries no remainder.
+- `r.SplatPak.Streaming.BandwidthMBps` (default 25, about 200 Mbit/s; 0 = off, each scan its own settings as
+  before) and `r.SplatPak.Streaming.Log` (1 = a line a second per world). No UDeveloperSettings: the cvar can go in
+  an ini's [SystemSettings].
+- The component's `BandwidthMBps` is now this scan's cap on its share (when not Unthrottled); new `StreamPriority`.
+  Components join the subsystem on their first tick: a PIE world registers its components before its subsystems
+  exist, so joining in OnRegister found no subsystem (the first run logged nothing).
+- SoundStage: with the budget on, the stepped sequence is not used. Every scan streams from BeginPlay; a piece's
+  weight is 2^(last order - its order), doubled for `finest`; the backdrop's is `BackdropStreamPriority` (4) and it
+  is Greedy from the start (its background work is weighted 1, its view's requests 4). With the budget off, the
+  sequence runs as before.
+- IStreamingManager registration left for phase 2 (it needs most of the interface implemented for little gain now).
+- Measured in PIE, the palace from the start view, 90 s each (`r.SplatPak.Streaming.Log 1`): budget off, the stage's
+  scans unthrottled as before: peak 252 MB/s together, every scan settled about 10 s in (1233 MB). Budget 25: the
+  total held 24.7 to 25.3 MB/s; the backdrop's view first (15.9 then 24.9 MB/s), then Cthulhu and the backdrop 12.5
+  each, then Cthulhu 19.8 against the backdrop's background 5.0 once its view was in, then the backdrop alone at
+  23.8; every scan settled after 51.8 s (1249.8 MB, mean 24.1 MB/s). The pieces upstairs and the hidden vases stay
+  idle from the start view under both.
+- Fix: at low frame rates the budget was under-delivered. The arbiter accrued each tick over the step capped at 0.1 s
+  (the component's cap on the runtime's step), so at 4 fps the palace got 7.5 of 25 MB/s. The budget now accrues over
+  the real frame time (up to 1 s) and the grant is converted to MB/s over the capped step; a scan may bank one whole
+  frame's share. Rerun in PIE: every scan settled after 58.8 s (1242 MB, mean 21.1 MB/s).
+
+## 2026-10-29: where the palace's GPU time goes
+
+- For the deck's Q&A (asked by the deck session): ProfileGPU with `r.GPUStatsEnabled 1`, one frame each, in PIE on
+  the RTX 4080 (driver 621.01), main view 1176x984 plus the walker's 512x512 loupe capture, start position facing
+  Cthulhu, shared budget 25 MB/s.
+- Start view (8 s, streaming): GPU frame 38.7 ms. SplatPak 10.6 ms in the main view (sort 4.2, of it scans 3.3;
+  Gaussians draw 3.8; discs, mesh shaders, 1640 meshlets, 0.28; veil 0.94; drop shadows 0.55) and 5.1 ms in the loupe.
+  With `r.SplatPak.Pass.Gaussians 0` and `r.SplatPak.Pass.Discs 0`: 13.2 ms. About 10 ms of the difference is in
+  post-processing outside the SplatPak event; not attributed.
+- Fully streamed (75 s): GPU frame 112.2 ms, SplatPak 89.8 ms of it. The backdrop (2.63 M splats) and Cthulhu (3.32 M,
+  all of it, always at its finest) each expand, sort and draw separately, and the loupe sorts the backdrop again.
+  Sorts 51.0 ms, of which the scan kernels 39.6 ms (about 4x the scatter: the scan is the first thing to fix); Gaussian
+  draws 28.6 ms; expand 9.9 ms; no disc pass (everything at level 0). Passes off: 19.3 ms.
+- So a compute rasteriser for small discs would target 0.3 ms. The sort's scan, Cthulhu's always-finest load (43 ms)
+  and the loupe's second sort (18.7 ms) are where the time is. The share of discs under 2 px was not measured.

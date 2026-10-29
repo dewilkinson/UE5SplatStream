@@ -45,6 +45,12 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SoundStage")
 	TObjectPtr<USplatPakComponent> BackdropComponent;
 
+	// With the world's shared streaming budget (r.SplatPak.Streaming.BandwidthMBps above 0), the scans stream together,
+	// weighted, rather than one stream order after another: the backdrop at this weight, each piece at 2 to the power of
+	// how many stream orders it comes before the last, doubled for a piece that is always at its finest
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "SoundStage", meta = (ClampMin = "0.0"))
+	float BackdropStreamPriority = 4.0f;
+
 	// ---- Accessors ----
 
 	// Rebuilds everything from the asset (it also runs when the asset changes)
