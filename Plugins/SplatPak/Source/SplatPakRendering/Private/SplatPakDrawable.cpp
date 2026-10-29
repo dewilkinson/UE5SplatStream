@@ -28,6 +28,7 @@ IMPLEMENT_GLOBAL_SHADER(FSplatPakMeshPS, "/Plugin/SplatPak/Private/SplatPakMesh.
 IMPLEMENT_GLOBAL_SHADER(FSplatPakMeshNormalVS, "/Plugin/SplatPak/Private/SplatPakMesh.usf", "MainNormalVS", SF_Vertex);
 IMPLEMENT_GLOBAL_SHADER(FSplatPakMeshNormalPS, "/Plugin/SplatPak/Private/SplatPakMesh.usf", "MainNormalPS", SF_Pixel);
 IMPLEMENT_GLOBAL_SHADER(FSplatPakOccRasterCS, "/Plugin/SplatPak/Private/SplatPakOcclusion.usf", "OccRasterCS", SF_Compute);
+IMPLEMENT_GLOBAL_SHADER(FSplatPakDiscArgsCS, "/Plugin/SplatPak/Private/SplatPakIndirect.usf", "DiscArgsCS", SF_Compute);
 
 static TAutoConsoleVariable<int32> CVarSplatPakMeshShaders(
 	TEXT("r.SplatPak.MeshShaders"),
@@ -44,6 +45,14 @@ static TAutoConsoleVariable<int32> CVarSplatPakOcclusionCulling(
 	TEXT("2 = debug: draw only the meshlets occlusion culling skips."),
 	ECVF_RenderThreadSafe);
 
+static TAutoConsoleVariable<int32> CVarSplatPakIndirectDispatch(
+	TEXT("r.SplatPak.IndirectDispatch"),
+	0,
+	TEXT("1 = the mesh-shader disc pass takes its group counts from a buffer a compute pass writes on the GPU\n")
+	TEXT("(DispatchIndirectMeshShader).\n")
+	TEXT("0 = the CPU passes them to DispatchMeshShader (default)."),
+	ECVF_RenderThreadSafe);
+
 // Pass isolation (the editor's SplatPak Rendering panel): each of the splat passes can be switched off to see the others
 static TAutoConsoleVariable<int32> CVarSplatPakPassDiscs(TEXT("r.SplatPak.Pass.Discs"), 1,
 	TEXT("0 = skip the disc pass (unlit discs, and the lit pass's discs)."), ECVF_RenderThreadSafe);
@@ -51,6 +60,10 @@ static TAutoConsoleVariable<int32> CVarSplatPakPassGaussians(TEXT("r.SplatPak.Pa
 	TEXT("0 = draw streamed splats as discs instead of sorted, blended Gaussians."), ECVF_RenderThreadSafe);
 static TAutoConsoleVariable<int32> CVarSplatPakPassFill(TEXT("r.SplatPak.Pass.Fill"), 1,
 	TEXT("0 = skip the gap fill (the occluder and shadow mesh drawn under the splats)."), ECVF_RenderThreadSafe);
+static TAutoConsoleVariable<float> CVarSplatPakOccluderPushBack(TEXT("r.SplatPak.OccluderPushBack"), 0.1f,
+	TEXT("How far a depth-only occluder (bOccluderDepth) is pushed back from the eye, as a share of its distance."), ECVF_RenderThreadSafe);
+static TAutoConsoleVariable<int32> CVarSplatPakColourMatch(TEXT("r.SplatPak.ColourMatch"), 1,
+	TEXT("0 = draw every scan in its captured colours, without its colour grade (USplatPakComponent::MatchColours)."), ECVF_RenderThreadSafe);
 static TAutoConsoleVariable<int32> CVarSplatPakPassLit(TEXT("r.SplatPak.Pass.Lit"), 1,
 	TEXT("0 = draw lit scans unlit (no GBuffer pass)."), ECVF_RenderThreadSafe);
 
@@ -257,6 +270,9 @@ void FSplatPakDrawable::AddDiscs(FRDGBuilder& GraphBuilder, const FViewInfo& Vie
 	Parameters->ScaleLog2Max = Data.ScaleLog2Max;
 	Parameters->PreExposure = View.PreExposure;
 	Parameters->EmissiveIntensity = Settings.EmissiveIntensity;
+	const bool bGrade = CVarSplatPakColourMatch.GetValueOnRenderThread() != 0;
+	Parameters->ColourGain = bGrade ? Settings.ColourGain : FVector3f::OneVector;
+	Parameters->ColourOffset = bGrade ? Settings.ColourOffset : FVector3f::ZeroVector;
 	const bool bGBuffer = GBufferTargets != nullptr;
 	Parameters->ModelToWorldNormal = FMatrix44f(ModelToWorld.RemoveTranslation().Inverse().GetTransposed());
 	Parameters->LitMode = bGBuffer ? 1u : 0u;
@@ -341,7 +357,7 @@ void FSplatPakDrawable::AddDiscs(FRDGBuilder& GraphBuilder, const FViewInfo& Vie
 	}
 	// Depth writes even when the base pass itself only tests depth (after a full depth prepass)
 	Parameters->RenderTargets.DepthStencil = FDepthStencilBinding(SceneDepth, ERenderTargetLoadAction::ELoad, FExclusiveDepthStencil::DepthWrite_StencilNop);
-	if (Settings.bShadowMeshFill && !bGBuffer && CVarSplatPakPassFill.GetValueOnRenderThread() != 0)
+	if ((Settings.bShadowMeshFill || Settings.bOccluderDepth) && !bGBuffer && CVarSplatPakPassFill.GetValueOnRenderThread() != 0)
 	{
 		AddMeshFillPasses(GraphBuilder, View, Parameters->ModelToClip, SceneColor, SceneDepth);
 	}
@@ -371,6 +387,46 @@ void FSplatPakDrawable::AddDiscs(FRDGBuilder& GraphBuilder, const FViewInfo& Vie
 		const uint32 GroupCount = FMath::DivideAndRoundUp(MeshletCount, GSplatMeshletsPerASGroup);
 		const uint32 GroupsX = FMath::Min(GroupCount, 65535u);
 		const uint32 GroupsY = FMath::DivideAndRoundUp(GroupCount, GroupsX);
+
+		// r.SplatPak.IndirectDispatch: the same group counts, written by a compute pass on the GPU and read by the
+		// dispatch from a buffer, so the CPU no longer passes them
+		if (CVarSplatPakIndirectDispatch.GetValueOnRenderThread() != 0)
+		{
+			FRDGBufferRef Args = GraphBuilder.CreateBuffer(FRDGBufferDesc::CreateIndirectDesc<FRHIDispatchIndirectParameters>(1), TEXT("SplatPak.DiscDispatchArgs"));
+			FSplatPakDiscArgsParameters* ArgsParameters = GraphBuilder.AllocParameters<FSplatPakDiscArgsParameters>();
+			ArgsParameters->RWArgs = GraphBuilder.CreateUAV(Args, PF_R32_UINT);
+			ArgsParameters->MeshletCount = MeshletCount;
+			ArgsParameters->MeshletsPerGroup = GSplatMeshletsPerASGroup;
+			TShaderMapRef<FSplatPakDiscArgsCS> ArgsShader(ShaderMap);
+			FComputeShaderUtils::AddPass(GraphBuilder, RDG_EVENT_NAME("SplatPak.DiscDispatchArgs"), ArgsShader, ArgsParameters, FIntVector(1, 1, 1));
+			Parameters->IndirectArgs = Args;
+
+			GraphBuilder.AddPass(
+				RDG_EVENT_NAME("SplatPak.Discs (mesh shaders, indirect, %u meshlets)", MeshletCount),
+				Parameters,
+				ERDGPassFlags::Raster,
+				[Parameters, AmplificationShader, MeshShader, PixelShader, ViewRect](FRHICommandList& RHICmdList)
+				{
+					RHICmdList.SetViewport(ViewRect.Min.X, ViewRect.Min.Y, 0.0f, ViewRect.Max.X, ViewRect.Max.Y, 1.0f);
+
+					FGraphicsPipelineStateInitializer PSOInit;
+					RHICmdList.ApplyCachedRenderTargets(PSOInit);
+					PSOInit.BlendState = TStaticBlendState<>::GetRHI();
+					PSOInit.RasterizerState = TStaticRasterizerState<FM_Solid, CM_None>::GetRHI();
+					PSOInit.DepthStencilState = TStaticDepthStencilState<true, CF_DepthNearOrEqual>::GetRHI();
+					PSOInit.PrimitiveType = PT_TriangleList;
+					PSOInit.BoundShaderState.SetAmplificationShader(AmplificationShader.GetAmplificationShader());
+					PSOInit.BoundShaderState.SetMeshShader(MeshShader.GetMeshShader());
+					PSOInit.BoundShaderState.PixelShaderRHI = PixelShader.GetPixelShader();
+					SetGraphicsPipelineState(RHICmdList, PSOInit, 0);
+
+					SetShaderParameters(RHICmdList, AmplificationShader, AmplificationShader.GetAmplificationShader(), *Parameters);
+					SetShaderParameters(RHICmdList, MeshShader, MeshShader.GetMeshShader(), *Parameters);
+					SetShaderParameters(RHICmdList, PixelShader, PixelShader.GetPixelShader(), *Parameters);
+					RHICmdList.DispatchIndirectMeshShader(Parameters->IndirectArgs->GetRHI(), 0);
+				});
+			return;
+		}
 
 		GraphBuilder.AddPass(
 			RDG_EVENT_NAME("SplatPak.Discs (mesh shaders, %u meshlets)", MeshletCount),
@@ -445,13 +501,23 @@ void FSplatPakDrawable::AddMeshFillPasses(FRDGBuilder& GraphBuilder, const FView
 	TShaderMapRef<FSplatPakMeshVS> VertexShader(ShaderMap);
 	TShaderMapRef<FSplatPakMeshPS> PixelShader(ShaderMap);
 	const FIntRect ViewRect = View.ViewRect;
-	auto Draw = [&](FRDGBufferRef Positions, FRDGBufferRef Colours, FRDGBufferRef Indices, uint32 IndexCount, bool bWriteDepth, const TCHAR* Name)
+	// Depth only (bOccluderDepth without the fill): the shadow mesh into depth, no colour (the occluder mesh is an interior
+	// volume that misses thin walls such as a stairwell's), pushed back from the eye by
+	// OccluderPushBack of its distance (a scale about the eye, the translated world's origin), so it hides what stands
+	// behind the scan's walls but not a piece standing against them
+	const bool bDepthOnly = !Settings.bShadowMeshFill && Settings.bOccluderDepth;
+	const FMatrix44f OccluderToClip = bDepthOnly
+		? FMatrix44f(GetModelToWorld() * FTranslationMatrix(View.ViewMatrices.GetPreViewTranslation()) * FScaleMatrix(1.0 + FMath::Max(0.0f, CVarSplatPakOccluderPushBack.GetValueOnRenderThread()))
+			* View.ViewMatrices.GetTranslatedWorldToClip())
+		: ModelToClip;
+	auto Draw = [&](FRDGBufferRef Positions, FRDGBufferRef Colours, FRDGBufferRef Indices, uint32 IndexCount, bool bWriteDepth, bool bColour,
+		const FMatrix44f& MeshToClip, const TCHAR* Name)
 	{
 		FSplatPakMeshParameters* P = GraphBuilder.AllocParameters<FSplatPakMeshParameters>();
 		P->MeshPositions = GraphBuilder.CreateSRV(Positions);
 		P->MeshColours = GraphBuilder.CreateSRV(Colours);
 		P->MeshIndices = GraphBuilder.CreateSRV(Indices);
-		P->ModelToClip = ModelToClip;
+		P->ModelToClip = MeshToClip;
 		P->LightDirModel = FVector3f(0.5f, 0.8f, 0.6f).GetSafeNormal(); // SplatPak's fixed key light
 		P->PreExposure = View.PreExposure;
 		P->EmissiveIntensity = Settings.EmissiveIntensity;
@@ -459,12 +525,12 @@ void FSplatPakDrawable::AddMeshFillPasses(FRDGBuilder& GraphBuilder, const FView
 		P->RenderTargets.DepthStencil = FDepthStencilBinding(SceneDepth, ERenderTargetLoadAction::ELoad,
 			bWriteDepth ? FExclusiveDepthStencil::DepthWrite_StencilNop : FExclusiveDepthStencil::DepthRead_StencilNop);
 		GraphBuilder.AddPass(RDG_EVENT_NAME("SplatPak.%s (%u triangles)", Name, IndexCount / 3), P, ERDGPassFlags::Raster,
-			[P, VertexShader, PixelShader, ViewRect, IndexCount, bWriteDepth](FRHICommandList& RHICmdList)
+			[P, VertexShader, PixelShader, ViewRect, IndexCount, bWriteDepth, bColour](FRHICommandList& RHICmdList)
 			{
 				RHICmdList.SetViewport(ViewRect.Min.X, ViewRect.Min.Y, 0.0f, ViewRect.Max.X, ViewRect.Max.Y, 1.0f);
 				FGraphicsPipelineStateInitializer PSOInit;
 				RHICmdList.ApplyCachedRenderTargets(PSOInit);
-				PSOInit.BlendState = TStaticBlendState<>::GetRHI();
+				PSOInit.BlendState = bColour ? TStaticBlendState<>::GetRHI() : TStaticBlendState<CW_NONE>::GetRHI();
 				PSOInit.RasterizerState = TStaticRasterizerState<FM_Solid, CM_None>::GetRHI();
 				PSOInit.DepthStencilState = bWriteDepth ? TStaticDepthStencilState<true, CF_DepthNearOrEqual>::GetRHI() : TStaticDepthStencilState<false, CF_DepthNearOrEqual>::GetRHI();
 				PSOInit.PrimitiveType = PT_TriangleList;
@@ -479,12 +545,12 @@ void FSplatPakDrawable::AddMeshFillPasses(FRDGBuilder& GraphBuilder, const FView
 	};
 
 	const uint32 OccIndexCount = (uint32)Data.OccluderIndices.size();
-	if (OccIndexCount >= 3 && Data.OccluderColours.size() == Data.OccluderPositions.size())
+	if (!bDepthOnly && OccIndexCount >= 3 && Data.OccluderColours.size() == Data.OccluderPositions.size())
 	{
 		FRDGBufferRef Positions = Upload(OccluderPositionBuffer, sizeof(float), (uint32)Data.OccluderPositions.size() * 3, Data.OccluderPositions.data(), TEXT("SplatPak.OccluderPositions"));
 		FRDGBufferRef Colours = Upload(OccluderColourBuffer, sizeof(uint32), (uint32)Data.OccluderColours.size(), Data.OccluderColours.data(), TEXT("SplatPak.OccluderColours"));
 		FRDGBufferRef Indices = Upload(OccluderIndexBuffer, sizeof(uint32), OccIndexCount, Data.OccluderIndices.data(), TEXT("SplatPak.OccluderIndices"));
-		Draw(Positions, Colours, Indices, OccIndexCount - OccIndexCount % 3, true, TEXT("Occluder"));
+		Draw(Positions, Colours, Indices, OccIndexCount - OccIndexCount % 3, true, true, ModelToClip, TEXT("Occluder"));
 	}
 	const uint32 ShadowIndexCount = (uint32)Data.ShadowIndices.size();
 	if (ShadowIndexCount >= 3 && Data.ShadowColours.size() == Data.ShadowPositions.size())
@@ -492,7 +558,8 @@ void FSplatPakDrawable::AddMeshFillPasses(FRDGBuilder& GraphBuilder, const FView
 		FRDGBufferRef Positions = Upload(ShadowPositionBuffer, sizeof(float), (uint32)Data.ShadowPositions.size() * 3, Data.ShadowPositions.data(), TEXT("SplatPak.ShadowPositions"));
 		FRDGBufferRef Colours = Upload(ShadowColourBuffer, sizeof(uint32), (uint32)Data.ShadowColours.size(), Data.ShadowColours.data(), TEXT("SplatPak.ShadowColours"));
 		FRDGBufferRef Indices = Upload(ShadowIndexBuffer, sizeof(uint32), ShadowIndexCount, Data.ShadowIndices.data(), TEXT("SplatPak.ShadowIndices"));
-		Draw(Positions, Colours, Indices, ShadowIndexCount - ShadowIndexCount % 3, false, TEXT("ShadowMeshFill"));
+		if (bDepthOnly) Draw(Positions, Colours, Indices, ShadowIndexCount - ShadowIndexCount % 3, true, false, OccluderToClip, TEXT("ShadowMeshDepth"));
+		else Draw(Positions, Colours, Indices, ShadowIndexCount - ShadowIndexCount % 3, false, true, ModelToClip, TEXT("ShadowMeshFill"));
 	}
 }
 
@@ -635,6 +702,8 @@ void FSplatPakDrawable::AddGaussianPasses(FRDGBuilder& GraphBuilder, const FView
 		P->ScaleLog2Max = Disc.ScaleLog2Max;
 		P->PreExposure = Disc.PreExposure;
 		P->EmissiveIntensity = Disc.EmissiveIntensity;
+		P->ColourGain = Disc.ColourGain;
+		P->ColourOffset = Disc.ColourOffset;
 		P->StreamFlags = Disc.StreamFlags;
 		P->GlowIntensity = Disc.GlowIntensity;
 		P->GlowHue = Disc.GlowHue;

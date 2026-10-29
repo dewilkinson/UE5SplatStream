@@ -60,6 +60,8 @@ float    ScaleLog2Max;
 float    PreExposure;
 uint     WordsPerRecord;
 float    EmissiveIntensity; // Brightness of the stored (baked) colour as emissive light; 1 = as stored
+float3   ColourGain;        // The colour grade, linear: colour * ColourGain + ColourOffset (FSplatPakDrawSettings)
+float3   ColourOffset;
 StructuredBuffer<uint> OccDepth; // Occlusion grid (SplatPakOcclusion.ush)
 uint     OcclusionCull;  // 1 = drop meshlets hidden behind the occluder mesh; 2 = draw only those (debug)
 uint     OccWidth;
@@ -573,7 +575,7 @@ void ClipDiscPixel(FSplatPakVSOut In)
 void MainPS(FSplatPakVSOut In, out float4 OutColor : SV_Target0)
 {
 	ClipDiscPixel(In);
-	OutColor = float4(SRGBToLinearColor(In.Color + In.Glow) * EmissiveIntensity * PreExposure, 1.0);
+	OutColor = float4(max(SRGBToLinearColor(In.Color + In.Glow) * ColourGain + ColourOffset, 0.0) * EmissiveIntensity * PreExposure, 1.0);
 }
 
 #if SPLATS_GBUFFER

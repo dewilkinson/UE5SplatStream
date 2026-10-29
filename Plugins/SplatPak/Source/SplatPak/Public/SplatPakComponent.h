@@ -13,6 +13,7 @@
 #include "Components/PrimitiveComponent.h"
 #include "SplatPakComponent.generated.h"
 
+class FSceneInterface;
 class USplatPakAsset;
 class UStaticMeshComponent;
 struct FSplatPakStreamLevels;
@@ -83,10 +84,21 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SplatPak|Streaming", meta = (EditCondition = "bStreaming"))
 	bool bReleaseUnusedSegments = true;
 
-	// For objects. An environment package (its view settings) always streams Conservative: the view and a residency ring
-	// around the eye, not the whole scene in the background.
+	// For objects. An environment package (its view settings) streams Conservative, the view and a residency ring around
+	// the eye, not the whole scene in the background, unless bGreedyEnvironment is set.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SplatPak|Streaming", meta = (EditCondition = "bStreaming"))
 	ESplatPakStreamingPolicy StreamingPolicy = ESplatPakStreamingPolicy::Greedy;
+
+	// An environment streams Greedy too: the view first, then the rest of the scene in the background (a SoundStage's
+	// backdrop, so the floors upstairs are in by the time a visitor climbs to them).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SplatPak|Streaming", meta = (EditCondition = "bStreaming"))
+	bool bGreedyEnvironment = false;
+
+	// Draws the finest level (0) wherever it is in view, at any distance: a centrepiece at full detail the moment the
+	// visitor looks its way. Out of view it may still release (Release Unused LOD Segments), and it streams back as soon
+	// as it is in view again (ignores Lod Pixel Spacing)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SplatPak|Streaming", meta = (EditCondition = "bStreaming"))
+	bool bAlwaysFinest = false;
 
 	// Each block takes its own level from its distance to the camera (near patches finer, far ones coarser).
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SplatPak|Streaming", meta = (EditCondition = "bStreaming"))
@@ -105,6 +117,25 @@ public:
 	// switching levels at once.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SplatPak|Streaming", meta = (EditCondition = "bStreaming"))
 	bool bDitheredTransitions = true;
+
+	// Blurs the whole view while the stream initialises and until the view's blocks are drawn at the two finest levels
+	// they need (their own target level, or the next coarser one), easing out from 60% of them to 95% (SplatPak's
+	// Loading Blur, SplatPakVeil.h). Armed when the scan appears and by Evict and Restream; gives up after Veil Timeout.
+	// In game worlds only: play in editor and packaged games, not the editor viewport.
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SplatPak|Streaming|Loading Veil", meta = (EditCondition = "bStreaming"))
+	bool bLoadingVeil = true;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SplatPak|Streaming|Loading Veil", meta = (ClampMin = "1.0", UIMax = "60.0", EditCondition = "bStreaming && bLoadingVeil"))
+	float VeilTimeout = 20.0f;
+
+	// Veils the view again until it has loaded (as a new scan does).
+	UFUNCTION(BlueprintCallable, Category = "SplatPak|Streaming|Loading Veil")
+	void ArmLoadingVeil();
+
+	// The share of the view's drawn blocks at the two finest levels they need, 0..1 (refreshed four times a second
+	// while the veil is armed), and the veil's strength now, 0..1.
+	UFUNCTION(BlueprintPure, Category = "SplatPak|Streaming|Loading Veil")
+	void GetLoadingVeil(float& ViewFill, float& Strength) const;
 
 	// Tints every block as it arrives in its level's colour, fading over Fade Duration (SplatPak's Refinement Visualizer).
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SplatPak|Streaming|Refinement Visualizer", meta = (EditCondition = "bStreaming"))
@@ -205,6 +236,11 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SplatPak|Shadow Mesh")
 	bool bShadowMeshFill = true;
 
+	// Without the gap fill: the occluder mesh alone into depth (no colour), a little behind where it is, so objects behind
+	// this scan's walls are hidden from view (its Gaussians write no depth) but a piece standing against a wall is not
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SplatPak|Shadow Mesh", meta = (EditCondition = "!bShadowMeshFill"))
+	bool bOccluderDepth = false;
+
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "SplatPak|Shadow Mesh")
 	bool bShadowMeshCastShadow = true;
 
@@ -219,6 +255,62 @@ public:
 	// The hidden component holding the shadow mesh (transient: rebuilt whenever this component registers).
 	UFUNCTION(BlueprintPure, Category = "SplatPak|Shadow Mesh")
 	UStaticMeshComponent* GetShadowMeshComponent() const { return ShadowMeshComponent; }
+
+	// A drop shadow on a floor: the shadow mesh (and DropShadowBox, a solid such as the plinth under it) projected along
+	// DropShadowDirection onto the plane at DropShadowFloorZ, drawn after the splats as a soft darkening. An effect, not a
+	// light: the scans around are baked light and take no shadows. Needs a package with a shadow mesh.
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "SplatPak|Drop Shadow")
+	bool bDropShadow = false;
+
+	// The way the light travels, world space (it must point down)
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "SplatPak|Drop Shadow", meta = (EditCondition = "bDropShadow"))
+	FVector DropShadowDirection = FVector(0.6, 0.5, -0.6);
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "SplatPak|Drop Shadow", meta = (ClampMin = "0.0", ClampMax = "1.0", EditCondition = "bDropShadow"))
+	float DropShadowOpacity = 0.5f;
+
+	// The floor's height, world Z (cm)
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "SplatPak|Drop Shadow", meta = (EditCondition = "bDropShadow"))
+	float DropShadowFloorZ = 0.0f;
+
+	// A box that casts with the shadow mesh, world space (invalid: none)
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "SplatPak|Drop Shadow", meta = (EditCondition = "bDropShadow"))
+	FBox DropShadowBox = FBox(ForceInit);
+
+	UFUNCTION(BlueprintCallable, Category = "SplatPak|Drop Shadow")
+	void SetDropShadow(bool bEnabled, FVector Direction, float Opacity, float FloorZ, FBox Box);
+
+	// A colour grade on the stored colour, in linear space: colour * ColourGain + ColourOffset (RGB; alpha unused).
+	// MatchColours sets it; it can also be set by hand.
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "SplatPak|Colour Match")
+	FLinearColor ColourGain = FLinearColor::White;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "SplatPak|Colour Match")
+	FLinearColor ColourOffset = FLinearColor(0.0f, 0.0f, 0.0f, 0.0f);
+
+	// Grades this scan's colours toward the scene around it, so an object captured under other light and white balance
+	// sits in the room rather than on top of it: a gain per channel, in linear colour, moving its mean colour toward
+	// that of the Scene scan within RadiusCm of this component while keeping its own contrast (sampled from both packages' shadow
+	// mesh vertex colours), by Strength (0 = as captured, 1 = fully matched). False if either has no shadow mesh.
+	UFUNCTION(BlueprintCallable, Category = "SplatPak|Colour Match")
+	bool MatchColours(USplatPakComponent* Scene, float Strength, float RadiusCm = 300.0f);
+
+	UFUNCTION(BlueprintCallable, Category = "SplatPak|Colour Match")
+	void ClearColourMatch();
+
+	// The scene's mean colour around this component (linear), as the last MatchColours measured it; black before
+	UFUNCTION(BlueprintPure, Category = "SplatPak|Colour Match")
+	FLinearColor GetMatchedRoomColour() const { return MatchedRoomColour; }
+
+	// Holds the stream: the levels are prepared, but nothing is requested until it is released, so a scene can bring its
+	// scans in one after another (ASoundStageActor: the backdrop's view, then its pieces in their stream order)
+	UFUNCTION(BlueprintCallable, Category = "SplatPak|Streaming")
+	void SetStreamHold(bool bHold);
+
+	// Whether the view's blocks of this scan are drawn at the two finest levels they need (bFinest: at the finest), for at least Threshold of them
+	// (true when none of it is in view); false while held or before the stream draws
+	UFUNCTION(BlueprintPure, Category = "SplatPak|Streaming")
+	bool IsViewLoaded(float Threshold = 0.9f, bool bFinest = false) const;
 
 	// Package units to Unreal centimetres (packages are in metres).
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "SplatPak|Import Frame", meta = (ClampMin = "0.0001"))
@@ -250,6 +342,11 @@ private:
 	bool FindView(FVector& OutLocation, FRotator& OutRotation, float& OutFovYRadians, float& OutAspect, int32& OutHeightPixels) const;
 	void PushStreamSettings() const;          // The draw settings that change without a new proxy
 	void PushLightingSettings() const;        // Lit mode and its material values, also without a new proxy
+	void UpdateLoadingVeil(float DeltaTime);  // The view fill and the veil's strength, published for the world's scene
+	void PublishVeil(float Strength);
+	float ComputeViewFill(int32& OutInView, int32 Slack) const; // The share of the in-view drawn blocks within Slack levels of their target
+	bool bStreamHold = false;
+	FLinearColor MatchedRoomColour = FLinearColor::Black;
 
 	TSharedPtr<const FSplatPakStreamLevels, ESPMode::ThreadSafe> StreamLevels;
 	TSharedPtr<const FSplatPakStreamSource, ESPMode::ThreadSafe> StreamSource; // The runtime's records, for the proxy
@@ -260,6 +357,14 @@ private:
 	int32 ViewLevel = 0;                      // The model-wide level (SplatPak's auto distance LOD, with its hysteresis)
 	float LevelCooldown = 0.0f;
 	bool bStreamFailed = false;
+	FMatrix LastModelToClip = FMatrix::Identity; // The view the stream last stepped with, for the veil's in-view test
+	bool bVeilArmed = false;
+	float VeilSeconds = 0.0f;                 // Since the veil was armed
+	float VeilReadySeconds = 0.0f;            // Of those, since the stream started
+	float VeilFill = 0.0f;
+	float VeilFillTimer = 0.0f;
+	float VeilStrength = 0.0f;                // Eased toward the fill's target, so the blur does not step
+	const FSceneInterface* VeilScene = nullptr; // Where VeilStrength is published
 
 	UPROPERTY(Transient, DuplicateTransient, TextExportTransient)
 	TObjectPtr<UStaticMeshComponent> ShadowMeshComponent;

@@ -279,3 +279,62 @@ Problems found and fixed on the way (all in the demo scripts, not the plugin):
   and are not ported yet.
 - Found: in the editor viewport the splats never start streaming (no "preparing to stream" in any editor session, though
   the components tick); in play in editor the palace streams in 1.4 s. Still to fix.
+
+### Loading veil; palace side flights (2026-10-28)
+
+- User asked for the veil (SplatPak's Loading Blur) while the scene initialises and until the two finest levels are
+  in for their view. Built as `SplatPakVeil` (rendering module: a two-pass Gaussian over scene colour before
+  post-processing, `r.SplatPak.Veil`, `r.SplatPak.Veil.Size` = 2% of the view height) driven per component by
+  `bLoadingVeil`: full until the stream is up, then the share of in-frustum drawn blocks at their target level or the
+  next coarser one; eases out from 60% to 95%, then disarms. Armed on register, asset change, Evict and Restream; game
+  worlds only (the editor viewport does not stream yet); `VeilTimeout` 20 s. "Two finest levels" read as per block
+  (its target and the next), since distant blocks never need level 0.
+- Verified in play on the palace: veiled to 11 s (stream ready at 5.6 s), eased out by 18.4 s, fill 96%.
+- Deck and demo edits moved to one session (ue5splatpakdemo-d5) after two sessions edited the same deck. That session
+  turned off the backdrop's shadow-mesh collision on SoundStage stages; the user then fell through the second
+  staircase, which had no volume. Measured from the scan: two side flights at x 1.65..4.8 either side, 17.2 degrees
+  from the landing (z 1.95) to the gallery (z 13.2, y 3.56); the landing and gallery floors are wider than the volumes
+  had them. Entries handed to that session for the spec.
+
+### Ornaments in play, Gaussian draw order, drop shadows (2026-10-28)
+
+- UE demo work moved to this session at the user's request (the deck stays in the other).
+- Sculptures were missing in play: a play world re-spawns each pedestal from its class, so the properties the stage
+  set on the editor's pedestal were lost, and the stage's maps of its components are transient. `ASoundStageActor::
+  BeginPlay` now reconnects the maps by component name and re-applies each piece.
+- With the sculptures back they still did not show as Gaussians: Gaussians write no depth, and each scan sorts and
+  blends its own, so the palace drawn after an object blended its background over it. Drawables now draw environment
+  scans first, then objects farthest first (`FSplatPakDrawSettings::bEnvironment`, from the asset).
+- The gap fill drew flat-colour shapes over the plinths: the palace's occluder stood in front of them, and Cthulhu's
+  shadow mesh reaches below its splats. SoundStage backdrops and pedestal sculptures now default to no gap fill; the
+  streamed Gaussians cover the gaps.
+- User asked for the landing ornaments' shadows from the left windows, angled toward the stairs, "not a real lighting
+  direction, just for effect". Unreal's lights cannot shadow unlit Gaussians (only lit discs take light), so drop
+  shadows are drawn as an effect (`SplatPakDropShadow`): each caster's shadow mesh and its plinth's box flattened onto
+  its floor along the stage's direction into an R8 mask, depth-tested, blurred, then multiplied into scene colour
+  after the splats. Spec: `"drop_shadow": {"direction", "opacity"}` per stage, `"shadow": true` per piece.
+- Walker: arrow keys tank-style (the other session's change), acceleration 6000, Shift eases to run speed over 0.35 s.
+
+### Colour match, stream sequence, gallery pieces (2026-10-28)
+
+- User: the pieces look "obviously superimposed". Added a per-object colour grade (`ColourGain`/`ColourOffset`, linear,
+  in the disc and Gaussian shaders) and `USplatPakComponent::MatchColours`, which fits it from both packages' shadow
+  mesh vertex colours: the object's against the backdrop's within 3 m. A full per-channel transfer (mean and spread)
+  took Cthulhu's sheen ("lost his sheen because of the filter"), so it is now a gain per channel only (white balance and
+  exposure), keeping the object's own contrast. Toggle: `r.SplatPak.ColourMatch`, the Rendering tab, M in play.
+  Spec: `"colour_match": {"strength", "radius"}`, per piece `"match"`.
+- Plinths: the palace's stone colour, then per pedestal the room's mean colour from the match, a procedural weathering
+  (blotches, grime toward the base, rougher where dirty; `Weathering` parameter). The bright gallery under-exposes lit
+  plinths beside the emissive splats, so the gallery plinths glow more (`plinth_emissive` 0.9).
+- User asked for the level's scan to stay resident and to stream Greedy so the upper landings load, with Cthulhu
+  prioritised after the downstairs staircase: SoundStage backdrops keep what they load (`bReleaseUnusedSegments`
+  off) and may stream Greedy (`bGreedyEnvironment`); in play the stage sequences them: the backdrop's view alone
+  (Conservative), then pieces by `"stream_order"` (Cthulhu 0), then the rest of the backdrop Greedy. Pieces stream
+  unthrottled, so Cthulhu's step takes about 0.3 s once released.
+- The Buddhist Musician (Seeget3D, CC BY 4.0) replaces Oligarchy; it and Akhenaten moved into the gallery corners
+  (measured from the scan) with drop shadows of their own direction (`"shadow_direction"`, away from that back wall).
+- The veil blurs at 2% of the view height (0.8% showed the coarse levels as dark blotches).
+- Cthulhu at full detail: `bAlwaysFinest` (spec `"finest": true`) draws level 0 wherever the scan is in view, at any
+  distance; out of view it may release as usual, and streams back when faced (in a probe it kept level 0 while turned
+  away). Timed in play from the start: released at 2 s (the stage's first step now hands over after 2 s, 75% of the
+  view or not), level 0 from 9 s, complete at 20 s; the levels refine in order at about 18 MB/s unthrottled.

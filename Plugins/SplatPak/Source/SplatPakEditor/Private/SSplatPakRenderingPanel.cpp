@@ -194,6 +194,9 @@ void SSplatPakRenderingPanel::Construct(const FArguments& InArgs)
 					CVarCheck(LOCTEXT("PassLit", "Lit GBuffer pass"), LOCTEXT("PassLitTip", "Lit scans written into the GBuffer; off draws them unlit (r.SplatPak.Pass.Lit)"), TEXT("r.SplatPak.Pass.Lit")),
 					CVarCheck(LOCTEXT("MeshShaders", "Mesh shaders"), LOCTEXT("MeshShadersTip", "Amplification and mesh shaders; off uses the vertex-shader fallback (r.SplatPak.MeshShaders)"), TEXT("r.SplatPak.MeshShaders")),
 					CVarCheck(LOCTEXT("Occlusion", "Occlusion culling"), LOCTEXT("OcclusionTip", "Skip meshlets behind the occluder mesh (r.SplatPak.OcclusionCulling)"), TEXT("r.SplatPak.OcclusionCulling")),
+					CVarCheck(LOCTEXT("Veil", "Loading veil"), LOCTEXT("VeilTip", "Blur the view while a scan initialises and its view's two finest levels arrive, in play (r.SplatPak.Veil)"), TEXT("r.SplatPak.Veil")),
+					CVarCheck(LOCTEXT("ColourMatch", "Colour match"), LOCTEXT("ColourMatchTip", "Each object's colours graded toward the scene around it; off, as captured (r.SplatPak.ColourMatch)"), TEXT("r.SplatPak.ColourMatch")),
+					CVarCheck(LOCTEXT("DropShadows", "Drop shadows"), LOCTEXT("DropShadowsTip", "The objects' shadows drawn on their floors (r.SplatPak.DropShadow)"), TEXT("r.SplatPak.DropShadow")),
 				}))
 			]
 

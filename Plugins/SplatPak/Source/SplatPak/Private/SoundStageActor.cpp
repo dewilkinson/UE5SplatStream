@@ -10,6 +10,8 @@
 #include "SplatPakComponent.h"
 #include "SplatPakPedestal.h"
 
+DEFINE_LOG_CATEGORY_STATIC(LogSoundStage, Log, All);
+
 namespace
 {
 	FColor KindColour(ESoundStageVolumeKind Kind)
@@ -54,7 +56,24 @@ ASoundStageActor::ASoundStageActor()
 	BackdropComponent->SetupAttachment(RootComponent);
 	BackdropComponent->bStreaming = true;
 	BackdropComponent->bUnthrottled = true;
+	// The stage's volumes are the scene's collision; the scan's own shadow mesh is too coarse to walk on (on the palace
+	// stairs it caught a walking visitor against the balustrade), so it only casts shadows and feeds Lumen here
+	BackdropComponent->bShadowMeshCollision = false;
+	// No gap fill either: the streamed Gaussians cover the scan's gaps, and the fill's occluder (depth and flat colour)
+	// stood in front of the pieces' plinths on the palace landing, so they drew as flat brown blocks
+	BackdropComponent->bShadowMeshFill = false;
+	// But its occluder still writes depth (only), so a piece behind the scan's walls is hidden: the vases were drawn over
+	// the stairwell's walls once the backdrop drew first
+	BackdropComponent->bOccluderDepth = false; // Off: with it the palace's own Gaussians all failed against it (black view); to fix
+	// The level's scan stays resident: what has streamed in is kept when the visitor turns away or walks on, rather than
+	// released and streamed again (and veiled again) on the way back
+	BackdropComponent->bReleaseUnusedSegments = false;
+	// And all of it comes in: the view first, then the rest of the level in the background (Greedy), so the upper
+	// landings are loaded by the time the visitor gets there
+	BackdropComponent->StreamingPolicy = ESplatPakStreamingPolicy::Greedy;
+	BackdropComponent->bGreedyEnvironment = true;
 	PedestalClass = ASplatPakPedestal::StaticClass();
+	PrimaryActorTick.bCanEverTick = true; // The stream sequence in play (Tick)
 }
 
 void ASoundStageActor::OnConstruction(const FTransform& Transform)
@@ -67,6 +86,116 @@ void ASoundStageActor::PostLoad()
 {
 	Super::PostLoad();
 	WatchStage();
+}
+
+// A play world (play in editor, a cooked level) holds the stage's components, but not the transient maps of them, and
+// each pedestal is spawned again from its class: without its sculpture, plinth or lights. Both are put back here.
+void ASoundStageActor::BeginPlay()
+{
+	ReconnectComponents();
+	if (Stage)
+	{
+		for (const FSoundStagePiece& Piece : Stage->Pieces)
+		{
+			if (TObjectPtr<UChildActorComponent>* Child = PieceComponents.Find(Piece.Name)) { ApplyPiece(*Child, Piece); }
+		}
+	}
+
+	// The stream sequence: the backdrop streams its view alone first (Conservative), the pieces held
+	StreamStep = INDEX_NONE;
+	if (Stage && GetWorld() && GetWorld()->IsGameWorld())
+	{
+		StreamOrders.Reset();
+		for (const FSoundStagePiece& Piece : Stage->Pieces)
+		{
+			StreamOrders.AddUnique(Piece.StreamOrder);
+			if (ASplatPakPedestal* Pedestal = GetPiece(Piece.Name)) { Pedestal->SculptureComponent->SetStreamHold(true); }
+		}
+		StreamOrders.Sort();
+		BackdropComponent->bGreedyEnvironment = false;
+		StreamStep = 0;
+		StreamStepSeconds = 0.0f;
+	}
+	Super::BeginPlay();
+}
+
+void ASoundStageActor::ReleaseStreamOrder(int32 Order)
+{
+	for (const FSoundStagePiece& Piece : Stage->Pieces)
+	{
+		if (Piece.StreamOrder != Order) continue;
+		if (ASplatPakPedestal* Pedestal = GetPiece(Piece.Name)) { Pedestal->SculptureComponent->SetStreamHold(false); }
+		UE_LOG(LogSoundStage, Log, TEXT("%s: streaming %s (order %d) after %.1f s"), *GetName(), *Piece.Name.ToString(), Order, StreamStepSeconds);
+	}
+}
+
+// Each step waits for its scans' views to load (or 20 s, so a view that never fills does not hold the rest back), then
+// releases the next: the backdrop's view, then each stream order of pieces, then the rest of the backdrop
+void ASoundStageActor::Tick(float DeltaSeconds)
+{
+	Super::Tick(DeltaSeconds);
+	if (StreamStep == INDEX_NONE || !Stage) return;
+	StreamStepSeconds += DeltaSeconds;
+	StreamCheckTimer -= DeltaSeconds;
+	if (StreamCheckTimer > 0.0f) return;
+	StreamCheckTimer = 0.25f;
+
+	bool bLoaded = true;
+	if (StreamStep == 0)
+	{
+		bLoaded = BackdropComponent->IsViewLoaded(0.75f); // Enough of the first view to start on the pieces
+	}
+	else
+	{
+		for (const FSoundStagePiece& Piece : Stage->Pieces)
+		{
+			ASplatPakPedestal* Pedestal = Piece.StreamOrder == StreamOrders[StreamStep - 1] ? GetPiece(Piece.Name) : nullptr;
+			if (Pedestal && Pedestal->Sculpture && !Pedestal->SculptureComponent->IsViewLoaded(0.9f, true)) bLoaded = false; // A piece: its finest needed level
+		}
+	}
+	// The first step is held to 2 s: the stairwell's coarse view is in by then, and the first piece needs the time to
+	// reach its finest level by the top of the stairs (about 18 MB/s each, unthrottled, in play)
+	if (!bLoaded && StreamStepSeconds < (StreamStep == 0 ? 2.0f : 20.0f)) return;
+
+	if (StreamStep < StreamOrders.Num())
+	{
+		ReleaseStreamOrder(StreamOrders[StreamStep]);
+		StreamStep++;
+	}
+	else
+	{
+		BackdropComponent->bGreedyEnvironment = true;
+		UE_LOG(LogSoundStage, Log, TEXT("%s: streaming the rest of the backdrop after %.1f s"), *GetName(), StreamStepSeconds);
+		StreamStep = INDEX_NONE;
+	}
+	StreamStepSeconds = 0.0f;
+}
+
+void ASoundStageActor::ReconnectComponents()
+{
+	if (!Stage) { return; }
+	TInlineComponentArray<UActorComponent*> Components(this);
+	auto Find = [&Components](const FString& Wanted) -> UActorComponent*
+	{
+		for (UActorComponent* Component : Components)
+		{
+			if (Component && Component->GetFName().GetPlainNameString() == Wanted) { return Component; }
+		}
+		return nullptr;
+	};
+	for (const FSoundStageVolume& Volume : Stage->Volumes)
+	{
+		if (UShapeComponent* Shape = Cast<UShapeComponent>(Find(TEXT("Volume_") + Volume.Name.ToString()))) { VolumeComponents.Add(Volume.Name, Shape); }
+	}
+	for (const FSoundStagePiece& Piece : Stage->Pieces)
+	{
+		if (UChildActorComponent* Child = Cast<UChildActorComponent>(Find(TEXT("Piece_") + Piece.Name.ToString()))) { PieceComponents.Add(Piece.Name, Child); }
+	}
+	BoundaryFaces.Reset();
+	for (UActorComponent* Component : Components)
+	{
+		if (UBoxComponent* Face = Cast<UBoxComponent>(Component); Face && Face->GetFName().GetPlainNameString() == TEXT("BoundaryFace")) { BoundaryFaces.Add(Face); }
+	}
 }
 
 void ASoundStageActor::BeginDestroy()
@@ -230,7 +359,13 @@ void ASoundStageActor::AddPiece(const FSoundStagePiece& Piece)
 	Child->SetRelativeTransform(FTransform(FRotator(0.0f, Piece.Facing, 0.0f), USoundStageAsset::PackageToStage(Piece.Floor)));
 	Child->SetChildActorClass(PedestalClass ? PedestalClass.Get() : ASplatPakPedestal::StaticClass());
 	Child->RegisterComponent();
-	if (ASplatPakPedestal* Pedestal = Cast<ASplatPakPedestal>(Child->GetChildActor()))
+	ApplyPiece(Child, Piece);
+	PieceComponents.Add(Piece.Name, Child);
+}
+
+void ASoundStageActor::ApplyPiece(UChildActorComponent* Child, const FSoundStagePiece& Piece) const
+{
+	if (ASplatPakPedestal* Pedestal = Child ? Cast<ASplatPakPedestal>(Child->GetChildActor()) : nullptr)
 	{
 		Pedestal->Sculpture = Piece.Sculpture;
 		Pedestal->SculptureHeight = Piece.Height * 100.0f;
@@ -238,9 +373,20 @@ void ASoundStageActor::AddPiece(const FSoundStagePiece& Piece)
 		Pedestal->PlinthMesh = Piece.Plinth;
 		Pedestal->PlinthEmissive = Piece.PlinthEmissive;
 		Pedestal->bUplight = Piece.bUplight;
+		Pedestal->bSculptureAlwaysFinest = Piece.bAlwaysFinest;
+		Pedestal->bDropShadow = Piece.bDropShadow && Stage;
+		if (Stage)
+		{
+			// The package frame's direction (Y up) in the stage's frame (Z up), then the world's
+			const FVector D = Piece.DropShadowDirection.IsNearlyZero() ? Stage->DropShadowDirection : Piece.DropShadowDirection;
+			Pedestal->DropShadowDirection = GetActorTransform().TransformVectorNoScale(FVector(D.X, D.Z, D.Y)).GetSafeNormal();
+			Pedestal->DropShadowOpacity = Stage->DropShadowOpacity;
+			Pedestal->ColourMatchScene = BackdropComponent;
+			Pedestal->ColourMatch = Piece.ColourMatch >= 0.0f ? Piece.ColourMatch : Stage->ColourMatchStrength;
+			Pedestal->ColourMatchRadius = Stage->ColourMatchRadius * 100.0f;
+		}
 		Pedestal->UpdateLayout();
 	}
-	PieceComponents.Add(Piece.Name, Child);
 }
 
 // ---- Accessors ---------------------------------------------------------------------------------------------------

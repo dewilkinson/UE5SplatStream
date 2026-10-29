@@ -119,6 +119,27 @@ struct SPLATPAK_API FSoundStagePiece
 	// A spot on the floor in front, casting the piece's shadow up the wall behind it
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SoundStage")
 	bool bUplight = false;
+
+	// Casts the stage's drop shadow (USoundStageAsset::DropShadowDirection) on the floor it stands on
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SoundStage")
+	bool bDropShadow = false;
+
+	// This piece's own direction for it, package frame (zero: the stage's), e.g. on a floor whose wall is on the other side
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SoundStage", meta = (EditCondition = "bDropShadow"))
+	FVector DropShadowDirection = FVector::ZeroVector;
+
+	// This piece's own colour match strength (USoundStageAsset::ColourMatchStrength); negative: the stage's
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SoundStage", meta = (UIMin = "-1.0", ClampMax = "1.0"))
+	float ColourMatch = -1.0f;
+
+	// When it streams in play: the backdrop's view first, then the pieces in this order (lowest first, each order once
+	// the one before has its view loaded), then the rest of the backdrop
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SoundStage", meta = (ClampMin = "0"))
+	int32 StreamOrder = 1;
+
+	// Its sculpture always at the finest level when in view (USplatPakComponent::bAlwaysFinest)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SoundStage")
+	bool bAlwaysFinest = false;
 };
 
 UCLASS(BlueprintType, hidecategories = Object)
@@ -151,6 +172,22 @@ public:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SoundStage|Start")
 	FVector StartLook = FVector(0, 0, -1);
+
+	// The drop shadow the pieces with bDropShadow cast on their floor: the direction the light travels, package frame
+	// (an effect, not a light: the scan is lit by its own baked colour), and how dark the shadow is
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SoundStage|Drop Shadow")
+	FVector DropShadowDirection = FVector(0.6, -0.6, 0.5);
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SoundStage|Drop Shadow", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float DropShadowOpacity = 0.5f;
+
+	// How far each piece's colours are graded toward the backdrop's around it (USplatPakComponent::MatchColours), so a
+	// sculpture captured elsewhere sits in the scan's light: 0 = as captured. Sampled within the radius (metres).
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SoundStage|Colour Match", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float ColourMatchStrength = 0.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SoundStage|Colour Match", meta = (ClampMin = "0.1"))
+	float ColourMatchRadius = 3.0f;
 
 	// The spec file this was last imported from or exported to
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "SoundStage")

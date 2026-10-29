@@ -33,6 +33,8 @@ BEGIN_SHADER_PARAMETER_STRUCT(FSplatPakDiscParameters, )
 	SHADER_PARAMETER(float, PreExposure)
 	SHADER_PARAMETER(uint32, WordsPerRecord)
 	SHADER_PARAMETER(float, EmissiveIntensity)
+	SHADER_PARAMETER(FVector3f, ColourGain)   // The colour grade (FSplatPakDrawSettings), linear
+	SHADER_PARAMETER(FVector3f, ColourOffset)
 	SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<uint>, OccDepth) // Occlusion grid (SplatPakOcclusion.ush); one cleared element when culling is off
 	SHADER_PARAMETER(uint32, OcclusionCull)
 	SHADER_PARAMETER(uint32, OccWidth)
@@ -52,6 +54,7 @@ BEGIN_SHADER_PARAMETER_STRUCT(FSplatPakDiscParameters, )
 	SHADER_PARAMETER_RDG_TEXTURE(Texture2D, MeshNormalTexture) // The shadow mesh's world normals (xyz) and clip w (w; 0 = none)
 	SHADER_PARAMETER(float, NormalSmoothing)     // 0 = the splat's own normal, 1 = the shadow mesh's where the disc lies on it
 	SHADER_PARAMETER(float, MeshNormalTolerance) // How far (clip w, world units) a disc may lie from the mesh and still take its normal
+	RDG_BUFFER_ACCESS(IndirectArgs, ERHIAccess::IndirectArgs) // Mesh-shader groups written on the GPU (r.SplatPak.IndirectDispatch); null otherwise
 	RENDER_TARGET_BINDING_SLOTS()
 END_SHADER_PARAMETER_STRUCT()
 
@@ -76,6 +79,8 @@ END_SHADER_PARAMETER_STRUCT()
 	SHADER_PARAMETER(float, ScaleLog2Max) \
 	SHADER_PARAMETER(float, PreExposure) \
 	SHADER_PARAMETER(float, EmissiveIntensity) \
+	SHADER_PARAMETER(FVector3f, ColourGain) \
+	SHADER_PARAMETER(FVector3f, ColourOffset) \
 	SHADER_PARAMETER(uint32, StreamFlags) \
 	SHADER_PARAMETER(float, GlowIntensity) \
 	SHADER_PARAMETER(float, GlowHue) \
@@ -253,6 +258,26 @@ public:
 	static bool ShouldCompilePermutation(const FGlobalShaderPermutationParameters& Parameters)
 	{
 		return IsFeatureLevelSupported(Parameters.Platform, ERHIFeatureLevel::SM5);
+	}
+};
+
+// The disc pass's indirect arguments (SplatPakIndirect.usf): the mesh-shader group counts, written on the GPU
+BEGIN_SHADER_PARAMETER_STRUCT(FSplatPakDiscArgsParameters, )
+	SHADER_PARAMETER_RDG_BUFFER_UAV(RWBuffer<uint>, RWArgs)
+	SHADER_PARAMETER(uint32, MeshletCount)
+	SHADER_PARAMETER(uint32, MeshletsPerGroup)
+END_SHADER_PARAMETER_STRUCT()
+
+class FSplatPakDiscArgsCS : public FGlobalShader
+{
+public:
+	DECLARE_GLOBAL_SHADER(FSplatPakDiscArgsCS);
+	SHADER_USE_PARAMETER_STRUCT(FSplatPakDiscArgsCS, FGlobalShader);
+	using FParameters = FSplatPakDiscArgsParameters;
+
+	static bool ShouldCompilePermutation(const FGlobalShaderPermutationParameters& Parameters)
+	{
+		return RHISupportsMeshShadersTier1(Parameters.Platform);
 	}
 };
 

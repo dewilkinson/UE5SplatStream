@@ -9,6 +9,45 @@
 #include "Materials/MaterialInstanceDynamic.h"
 #include "SplatPakAsset.h"
 #include "SplatPakComponent.h"
+#include "SplatPakPackageCore.h"
+
+namespace
+{
+	// A scan's extent in model space without its strays: the package's bounds take every splat, so a few floaters below a
+	// sculpture's base stood it that far above its plinth. Per axis, the 1st percentile of the coarsest level's meshlets'
+	// low corners to the 99th of their high ones (a meshlet's high corner is its low one reflected through its centre).
+	// Read once per asset; invalid when the level cannot be decoded.
+	FBox RobustModelBounds(USplatPakAsset* Asset)
+	{
+		static TMap<TWeakObjectPtr<USplatPakAsset>, FBox> Cache;
+		if (const FBox* Found = Cache.Find(Asset)) return *Found;
+		FBox Result(ForceInit);
+		if (FSplatPakLevelPtr Level = Asset->GetDecodedLevel(-1))
+		{
+			TArray<float> Lo[3], Hi[3];
+			for (const SplatCore::FMeshlet& M : Level->Meshlets)
+			{
+				const float C[3] = { M.Center.X, M.Center.Y, M.Center.Z }, A[3] = { M.AabbMin.X, M.AabbMin.Y, M.AabbMin.Z };
+				for (int32 Axis = 0; Axis < 3; Axis++) { Lo[Axis].Add(A[Axis]); Hi[Axis].Add(2.0f * C[Axis] - A[Axis]); }
+			}
+			if (Lo[0].Num() >= 8)
+			{
+				FVector Min, Max;
+				for (int32 Axis = 0; Axis < 3; Axis++)
+				{
+					Lo[Axis].Sort();
+					Hi[Axis].Sort();
+					const int32 N = Lo[Axis].Num();
+					Min[Axis] = Lo[Axis][FMath::Clamp(N / 100, 0, N - 1)];
+					Max[Axis] = Hi[Axis][FMath::Clamp(N - 1 - N / 100, 0, N - 1)];
+				}
+				Result = FBox(Min, Max);
+			}
+		}
+		Cache.Add(Asset, Result);
+		return Result;
+	}
+}
 
 ASplatPakPedestal::ASplatPakPedestal()
 {
@@ -19,6 +58,9 @@ ASplatPakPedestal::ASplatPakPedestal()
 	SculptureComponent->SetupAttachment(RootComponent);
 	SculptureComponent->bStreaming = true;
 	SculptureComponent->bUnthrottled = true;
+	// No gap fill: a sculpture is dense enough without it, and a scan's shadow mesh can reach below its splats (a base
+	// cropped from the splats but not the mesh), which then drew over the plinth in flat colour
+	SculptureComponent->bShadowMeshFill = false;
 	KeyLightComponent = CreateDefaultSubobject<UPointLightComponent>(TEXT("KeyLight"));
 	KeyLightComponent->SetupAttachment(RootComponent);
 	KeyLightComponent->SetIntensityUnits(ELightUnits::Candelas);
@@ -63,11 +105,16 @@ void ASplatPakPedestal::UpdateLayout()
 	{
 		SculptureComponent->SetSplatPakAsset(Sculpture);
 	}
+	SculptureComponent->bAlwaysFinest = bSculptureAlwaysFinest;
 	SculptureComponent->SetRelativeRotation(FRotator(0.0f, FrontYawOffset, 0.0f));
 	SculptureComponent->SetRelativeScale3D(FVector::OneVector);
 	if (Sculpture)
 	{
-		const FBoxSphereBounds Local = SculptureComponent->CalcBounds(FTransform(FRotator(0.0f, FrontYawOffset, 0.0f)));
+		// The scan's own extent without its strays (RobustModelBounds), in the sculpture's frame at scale 1
+		const FBox Model = RobustModelBounds(Sculpture);
+		const FBoxSphereBounds Local = Model.IsValid
+			? FBoxSphereBounds(Model.TransformBy(SculptureComponent->GetModelToLocal() * FRotationMatrix(FRotator(0.0f, FrontYawOffset, 0.0f))))
+			: SculptureComponent->CalcBounds(FTransform(FRotator(0.0f, FrontYawOffset, 0.0f)));
 		const float Height = 2.0f * (float)Local.BoxExtent.Z;
 		if (Height > KINDA_SMALL_NUMBER)
 		{
@@ -89,4 +136,26 @@ void ASplatPakPedestal::UpdateLayout()
 	const FVector Aim(0.0f, 0.0f, PlinthTop + 0.5f * SculptureHeight);
 	UplightComponent->SetRelativeLocation(UplightAt);
 	UplightComponent->SetRelativeRotation((Aim - UplightAt).Rotation());
+
+	// The drop shadow, drawn with the sculpture's splats: its shadow mesh and the plinth's bounds, on this actor's floor
+	FBox PlinthBox(ForceInit);
+	if (PlinthMesh)
+	{
+		PlinthBox = PlinthMesh->GetBoundingBox().TransformBy(PlinthComponent->GetComponentTransform());
+	}
+	SculptureComponent->SetDropShadow(bDropShadow, DropShadowDirection, DropShadowOpacity, (float)GetActorLocation().Z, PlinthBox);
+
+	// The colour match, once the sculpture is where it stands; the plinth takes the room's colour too (its material's
+	// "Colour" parameter, when it has one), so it is the stone of this floor rather than of another
+	if (ColourMatchScene && ColourMatch > 0.0f && SculptureComponent->MatchColours(ColourMatchScene, ColourMatch, ColourMatchRadius))
+	{
+		if (UMaterialInstanceDynamic* Instance = Cast<UMaterialInstanceDynamic>(PlinthComponent->GetMaterial(0)); Instance && bPlinthMatchesRoom)
+		{
+			Instance->SetVectorParameterValue(TEXT("Colour"), SculptureComponent->GetMatchedRoomColour());
+		}
+	}
+	else
+	{
+		SculptureComponent->ClearColourMatch();
+	}
 }

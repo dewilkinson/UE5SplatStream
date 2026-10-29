@@ -223,6 +223,24 @@ bool USoundStageAsset::ImportSpec(const FString& Json, FString& OutError)
 		ReadVector(*Start, TEXT("eye"), StartEye);
 		ReadVector(*Start, TEXT("look"), StartLook);
 	}
+	DropShadowDirection = FVector(0.6, -0.6, 0.5);
+	DropShadowOpacity = 0.5f;
+	const TSharedPtr<FJsonObject>* Shadow = nullptr;
+	if (Root->TryGetObjectField(TEXT("drop_shadow"), Shadow))
+	{
+		ReadVector(*Shadow, TEXT("direction"), DropShadowDirection);
+		double Opacity;
+		if ((*Shadow)->TryGetNumberField(TEXT("opacity"), Opacity)) { DropShadowOpacity = (float)FMath::Clamp(Opacity, 0.0, 1.0); }
+	}
+	ColourMatchStrength = 0.0f;
+	ColourMatchRadius = 3.0f;
+	const TSharedPtr<FJsonObject>* Match = nullptr;
+	if (Root->TryGetObjectField(TEXT("colour_match"), Match))
+	{
+		double D;
+		if ((*Match)->TryGetNumberField(TEXT("strength"), D)) { ColourMatchStrength = (float)FMath::Clamp(D, 0.0, 1.0); }
+		if ((*Match)->TryGetNumberField(TEXT("radius"), D)) { ColourMatchRadius = (float)FMath::Max(D, 0.1); }
+	}
 
 	Volumes.Reset();
 	const TArray<TSharedPtr<FJsonValue>>* List = nullptr;
@@ -264,6 +282,11 @@ bool USoundStageAsset::ImportSpec(const FString& Json, FString& OutError)
 			if (O->TryGetNumberField(TEXT("plinth_emissive"), D)) { P.PlinthEmissive = (float)D; }
 			O->TryGetStringField(TEXT("plinth"), P.PlinthPath);
 			O->TryGetBoolField(TEXT("uplight"), P.bUplight);
+			O->TryGetBoolField(TEXT("shadow"), P.bDropShadow);
+			ReadVector(O, TEXT("shadow_direction"), P.DropShadowDirection);
+			if (O->TryGetNumberField(TEXT("match"), D)) { P.ColourMatch = (float)FMath::Clamp(D, 0.0, 1.0); }
+			if (O->TryGetNumberField(TEXT("stream_order"), D)) { P.StreamOrder = FMath::Max(0, (int32)D); }
+			O->TryGetBoolField(TEXT("finest"), P.bAlwaysFinest);
 			Pieces.Add(P);
 		}
 	}
@@ -297,6 +320,14 @@ FString USoundStageAsset::ExportSpec() const
 	Start->SetField(TEXT("eye"), WriteVector(StartEye));
 	Start->SetField(TEXT("look"), WriteVector(StartLook));
 	Root->SetObjectField(TEXT("start"), Start);
+	TSharedRef<FJsonObject> Shadow = MakeShared<FJsonObject>();
+	Shadow->SetField(TEXT("direction"), WriteVector(DropShadowDirection));
+	Shadow->SetNumberField(TEXT("opacity"), DropShadowOpacity);
+	Root->SetObjectField(TEXT("drop_shadow"), Shadow);
+	TSharedRef<FJsonObject> Match = MakeShared<FJsonObject>();
+	Match->SetNumberField(TEXT("strength"), ColourMatchStrength);
+	Match->SetNumberField(TEXT("radius"), ColourMatchRadius);
+	Root->SetObjectField(TEXT("colour_match"), Match);
 
 	TArray<TSharedPtr<FJsonValue>> VolumeList;
 	for (const FSoundStageVolume& V : Volumes)
@@ -327,6 +358,11 @@ FString USoundStageAsset::ExportSpec() const
 		if (!Plinth.IsEmpty()) { O->SetStringField(TEXT("plinth"), Plinth); }
 		O->SetNumberField(TEXT("plinth_emissive"), P.PlinthEmissive);
 		O->SetBoolField(TEXT("uplight"), P.bUplight);
+		if (P.bDropShadow) { O->SetBoolField(TEXT("shadow"), true); }
+		if (!P.DropShadowDirection.IsNearlyZero()) { O->SetField(TEXT("shadow_direction"), WriteVector(P.DropShadowDirection)); }
+		if (P.ColourMatch >= 0.0f) { O->SetNumberField(TEXT("match"), P.ColourMatch); }
+		if (P.StreamOrder != 1) { O->SetNumberField(TEXT("stream_order"), P.StreamOrder); }
+		if (P.bAlwaysFinest) { O->SetBoolField(TEXT("finest"), true); }
 		PieceList.Add(MakeShared<FJsonValueObject>(O));
 	}
 	Root->SetArrayField(TEXT("pieces"), PieceList);

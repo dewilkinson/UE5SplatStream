@@ -6,6 +6,9 @@
 #include "SplatPakAsset.h"
 #include "SplatPakSceneProxy.h"
 #include "SplatPakStreamLevels.h"
+#include "SplatPakVeil.h"
+#include "SplatPakPackageCore.h"
+#include "ConvexVolume.h"
 #include "RenderingThread.h"
 #include "Components/StaticMeshComponent.h"
 #include "Engine/StaticMesh.h"
@@ -43,6 +46,7 @@ void USplatPakComponent::SetSplatPakAsset(USplatPakAsset* NewAsset)
 	{
 		StopStream();
 		SplatPakAsset = NewAsset;
+		ArmLoadingVeil();
 		UpdateBounds();
 		MarkRenderStateDirty();
 		UpdateShadowMeshComponent();
@@ -53,10 +57,13 @@ void USplatPakComponent::OnRegister()
 {
 	Super::OnRegister();
 	UpdateShadowMeshComponent();
+	ArmLoadingVeil(); // A scan appearing: veiled until its view has loaded
 }
 
 void USplatPakComponent::OnUnregister()
 {
+	PublishVeil(0.0f);
+	bVeilArmed = false;
 	if (ShadowMeshComponent)
 	{
 		ShadowMeshComponent->DestroyComponent();
@@ -181,7 +188,18 @@ FPrimitiveSceneProxy* USplatPakComponent::CreateSceneProxy()
 	Settings.GlowIntensity = GlowIntensity;
 	Settings.GlowHue = GlowHue;
 	Settings.bShadowMeshFill = bShadowMeshFill;
+	Settings.bOccluderDepth = bOccluderDepth;
 	Settings.bGaussians = bGaussians;
+	Settings.bEnvironment = SplatPakAsset && SplatPakAsset->bEnvironmentScene;
+	Settings.ColourGain = FVector3f(ColourGain.R, ColourGain.G, ColourGain.B);
+	Settings.ColourOffset = FVector3f(ColourOffset.R, ColourOffset.G, ColourOffset.B);
+	Settings.bDropShadow = bDropShadow && DropShadowDirection.Z < -0.05;
+	Settings.DropShadowDirection = FVector3f(DropShadowDirection.GetSafeNormal());
+	Settings.DropShadowOpacity = DropShadowOpacity;
+	Settings.DropShadowFloorZ = DropShadowFloorZ;
+	Settings.bDropShadowBox = DropShadowBox.IsValid != 0;
+	Settings.DropShadowBoxMin = FVector3f(DropShadowBox.Min);
+	Settings.DropShadowBoxMax = FVector3f(DropShadowBox.Max);
 	Settings.bLit = bLit;
 	Settings.LitBlend = LitBlend;
 	Settings.LitRoughness = LitRoughness;
@@ -270,6 +288,7 @@ void USplatPakComponent::Evict()
 	{
 		Runtime->ClearResidentStream();
 	}
+	ArmLoadingVeil();
 }
 
 void USplatPakComponent::Restream()
@@ -281,6 +300,223 @@ void USplatPakComponent::Restream()
 		Runtime->m_redeliveredBlocks = 0;
 		Runtime->m_extraDeliveries = 0;
 	}
+	ArmLoadingVeil();
+}
+
+void USplatPakComponent::SetDropShadow(bool bEnabled, FVector Direction, float Opacity, float FloorZ, FBox Box)
+{
+	const bool bChanged = bDropShadow != bEnabled || !DropShadowDirection.Equals(Direction) || DropShadowOpacity != Opacity
+		|| DropShadowFloorZ != FloorZ || !(DropShadowBox == Box);
+	bDropShadow = bEnabled;
+	DropShadowDirection = Direction;
+	DropShadowOpacity = Opacity;
+	DropShadowFloorZ = FloorZ;
+	DropShadowBox = Box;
+	if (bChanged) MarkRenderStateDirty(); // The settings travel with a new proxy
+}
+
+// ---- Colour match -------------------------------------------------------------------------------------------------
+
+namespace
+{
+	// A package's shadow mesh (finest LOD) as colour samples: model-space positions and linear colours, read once per
+	// asset (a pedestal's construction script runs on every edit)
+	struct FColourSamples
+	{
+		TArray<FVector3f> Positions;
+		TArray<FVector3f> Colours;
+	};
+
+	TSharedPtr<const FColourSamples> GetColourSamples(USplatPakAsset* Asset)
+	{
+		static TMap<TWeakObjectPtr<USplatPakAsset>, TSharedPtr<const FColourSamples>> Cache;
+		if (!Asset) return nullptr;
+		if (const TSharedPtr<const FColourSamples>* Found = Cache.Find(Asset)) return *Found;
+		std::vector<SplatCore::FShadowMeshLevel> Levels;
+		TSharedPtr<FColourSamples> Samples = MakeShared<FColourSamples>();
+		if (Asset->ReadShadowMeshLevels(Levels) && !Levels.empty())
+		{
+			const SplatCore::FShadowMeshLevel& L = Levels[0];
+			const int32 N = (int32)FMath::Min(L.Positions.size(), L.Colours.size());
+			Samples->Positions.SetNumUninitialized(N);
+			Samples->Colours.SetNumUninitialized(N);
+			for (int32 i = 0; i < N; i++)
+			{
+				Samples->Positions[i] = FVector3f(L.Positions[i].X, L.Positions[i].Y, L.Positions[i].Z);
+				const uint32 C = L.Colours[i]; // 0xAABBGGRR, sRGB
+				const FLinearColor Lin = FLinearColor(FColor((uint8)(C & 0xFF), (uint8)((C >> 8) & 0xFF), (uint8)((C >> 16) & 0xFF)));
+				Samples->Colours[i] = FVector3f(Lin.R, Lin.G, Lin.B);
+			}
+		}
+		Cache.Add(Asset, Samples);
+		return Samples;
+	}
+
+	// Mean and standard deviation per channel
+	void ColourStats(const TArray<FVector3f>& Colours, FVector3f& OutMean, FVector3f& OutStd)
+	{
+		FVector3d Sum(0), Sum2(0);
+		for (const FVector3f& C : Colours) { Sum += FVector3d(C); Sum2 += FVector3d(C) * FVector3d(C); }
+		const double N = FMath::Max(1, Colours.Num());
+		const FVector3d Mean = Sum / N;
+		const FVector3d Var = Sum2 / N - Mean * Mean;
+		OutMean = FVector3f(Mean);
+		OutStd = FVector3f((float)FMath::Sqrt(FMath::Max(Var.X, 1e-8)), (float)FMath::Sqrt(FMath::Max(Var.Y, 1e-8)), (float)FMath::Sqrt(FMath::Max(Var.Z, 1e-8)));
+	}
+}
+
+bool USplatPakComponent::MatchColours(USplatPakComponent* Scene, float Strength, float RadiusCm)
+{
+	const TSharedPtr<const FColourSamples> Own = GetColourSamples(SplatPakAsset);
+	const TSharedPtr<const FColourSamples> Room = Scene ? GetColourSamples(Scene->SplatPakAsset) : nullptr;
+	if (!Own || !Room || Own->Colours.Num() < 16 || Room->Colours.Num() < 16) return false;
+
+	// The room around this object: the scene's samples within the radius, widened until there are enough
+	const FMatrix SceneModelToWorld = Scene->GetModelToLocal() * Scene->GetComponentTransform().ToMatrixWithScale();
+	const FVector Centre = Bounds.Origin;
+	TArray<FVector3f> Near;
+	for (float Radius = FMath::Max(RadiusCm, 10.0f); Near.Num() < 500 && Radius < 5000.0f; Radius *= 2.0f)
+	{
+		Near.Reset();
+		const double R2 = (double)Radius * Radius;
+		for (int32 i = 0; i < Room->Positions.Num(); i++)
+		{
+			if (FVector::DistSquared(SceneModelToWorld.TransformPosition(FVector(Room->Positions[i])), Centre) <= R2) Near.Add(Room->Colours[i]);
+		}
+	}
+	if (Near.Num() < 16) return false;
+
+	FVector3f OwnMean, OwnStd, RoomMean, RoomStd;
+	ColourStats(Own->Colours, OwnMean, OwnStd);
+	ColourStats(Near, RoomMean, RoomStd);
+	MatchedRoomColour = FLinearColor(RoomMean.X, RoomMean.Y, RoomMean.Z, 1.0f);
+	// A gain per channel, RoomMean / OwnMean (a white balance and exposure shift, held to 0.5 .. 2): the object takes the
+	// room's light and colour cast but keeps its own contrast. Moving its spread to the room's as well (a full colour
+	// transfer) flattened a glossy sculpture's highlights to the matte stone around it.
+	const float S = FMath::Clamp(Strength, 0.0f, 1.0f);
+	FVector3f Gain, Offset = FVector3f::ZeroVector;
+	for (int32 c = 0; c < 3; c++)
+	{
+		const float A = FMath::Clamp(RoomMean[c] / FMath::Max(OwnMean[c], 1e-4f), 0.5f, 2.0f);
+		Gain[c] = FMath::Lerp(1.0f, A, S);
+	}
+	const FLinearColor NewGain(Gain.X, Gain.Y, Gain.Z, 1.0f), NewOffset(Offset.X, Offset.Y, Offset.Z, 0.0f);
+	if (!NewGain.Equals(ColourGain, 1e-4f) || !NewOffset.Equals(ColourOffset, 1e-4f))
+	{
+		ColourGain = NewGain;
+		ColourOffset = NewOffset;
+		MarkRenderStateDirty(); // The grade travels with a new proxy
+	}
+	return true;
+}
+
+void USplatPakComponent::ClearColourMatch()
+{
+	if (!ColourGain.Equals(FLinearColor::White) || !ColourOffset.Equals(FLinearColor(0, 0, 0, 0)))
+	{
+		ColourGain = FLinearColor::White;
+		ColourOffset = FLinearColor(0.0f, 0.0f, 0.0f, 0.0f);
+		MarkRenderStateDirty();
+	}
+}
+
+float USplatPakComponent::ComputeViewFill(int32& OutInView, int32 Slack) const
+{
+	OutInView = 0;
+	if (!Runtime.IsValid()) return 0.0f;
+	FConvexVolume Frustum;
+	GetViewFrustumBounds(Frustum, LastModelToClip, false);
+	const Splat::XMFLOAT3& Eye = Runtime->camera.eye;
+	const size_t Count = FMath::Min<size_t>(Runtime->FrameChunkCount(), Runtime->m_rendererSourceChunks.size());
+	int32 Have = 0;
+	for (size_t i = 0; i < Count; i++)
+	{
+		const Splat::StreamChunk* C = Runtime->m_rendererSourceChunks[i];
+		if (!C || !Frustum.IntersectSphere(FVector(C->center.x, C->center.y, C->center.z), C->radius)) continue;
+		OutInView++;
+		Have += C->lodLevel <= Runtime->BlockTargetLOD(*C, Eye) + Slack ? 1 : 0;
+	}
+	return OutInView > 0 ? (float)Have / (float)OutInView : 1.0f;
+}
+
+bool USplatPakComponent::IsViewLoaded(float Threshold, bool bFinest) const
+{
+	if (!Runtime.IsValid() || bStreamHold || !Runtime->m_frameProduced) return false;
+	int32 InView = 0;
+	const float Fill = ComputeViewFill(InView, bFinest ? 0 : 1);
+	if (InView > 0) return Fill >= Threshold;
+	// Nothing drawn in view: loaded only if the scan is really out of view, not just not drawing yet
+	const FMatrix ModelToWorld = GetModelToLocal() * GetComponentTransform().ToMatrixWithScale();
+	FConvexVolume Frustum;
+	GetViewFrustumBounds(Frustum, ModelToWorld.Inverse() * LastModelToClip, false);
+	return !Frustum.IntersectSphere(Bounds.Origin, Bounds.SphereRadius);
+}
+
+void USplatPakComponent::SetStreamHold(bool bHold)
+{
+	bStreamHold = bHold;
+}
+
+void USplatPakComponent::ArmLoadingVeil()
+{
+	bVeilArmed = true;
+	VeilSeconds = 0.0f;
+	VeilReadySeconds = 0.0f;
+	VeilFill = 0.0f;
+	VeilFillTimer = 0.0f;
+}
+
+void USplatPakComponent::GetLoadingVeil(float& ViewFill, float& Strength) const
+{
+	ViewFill = VeilFill;
+	Strength = VeilStrength;
+}
+
+void USplatPakComponent::PublishVeil(float Strength)
+{
+	const FSceneInterface* Scene = GetWorld() ? GetWorld()->Scene : nullptr;
+	if (VeilScene && VeilScene != Scene) SplatPakVeil::SetStrength(VeilScene, this, 0.0f);
+	SplatPakVeil::SetStrength(Scene, this, Strength);
+	VeilScene = Strength > 0.0f ? Scene : nullptr;
+}
+
+// The loading veil: full while the stream initialises; then, four times a second, the share of the view's drawn blocks
+// (the render list's, inside the view's frustum) drawn at their target level or the next coarser one. The blur eases
+// out from 60% to 95%, where the veil disarms. A view that draws nothing a second after the stream started counts as in.
+void USplatPakComponent::UpdateLoadingVeil(float DeltaTime)
+{
+	const UWorld* World = GetWorld();
+	const bool bActive = bVeilArmed && bLoadingVeil && bStreaming && SplatPakAsset && !bStreamFailed && World && World->IsGameWorld()
+		&& IsVisible() && VeilSeconds < VeilTimeout;
+	float Target = 0.0f;
+	if (bActive)
+	{
+		VeilSeconds += DeltaTime;
+		Target = 1.0f;
+		if (Runtime.IsValid())
+		{
+			VeilReadySeconds += DeltaTime;
+			VeilFillTimer -= DeltaTime;
+			if (VeilFillTimer <= 0.0f)
+			{
+				VeilFillTimer = 0.25f;
+				int32 Wanted = 0;
+				const float Fill = ComputeViewFill(Wanted, 1);
+				VeilFill = Wanted > 0 ? Fill : (VeilReadySeconds > 1.0f ? 1.0f : 0.0f);
+				if (VeilFill >= 0.95f) bVeilArmed = false; // In: no veil until the next arm
+			}
+			const float T = FMath::Clamp((VeilFill - 0.60f) / 0.35f, 0.0f, 1.0f);
+			Target = bVeilArmed ? 1.0f - T * T * (3.0f - 2.0f * T) : 0.0f;
+		}
+	}
+	else if (bVeilArmed && (VeilSeconds >= VeilTimeout || !bLoadingVeil || !bStreaming))
+	{
+		bVeilArmed = false;
+	}
+	// Up at once (a new scan veils straight away), down over about half a second
+	VeilStrength = Target >= VeilStrength ? Target : FMath::FInterpTo(VeilStrength, Target, DeltaTime, 6.0f);
+	if (VeilStrength < 0.01f) VeilStrength = 0.0f;
+	if (VeilStrength > 0.0f || VeilScene) PublishVeil(VeilStrength);
 }
 
 TArray<FSplatPakLevelResidency> USplatPakComponent::GetLevelResidency() const
@@ -366,6 +602,7 @@ void USplatPakComponent::PushStreamSettings() const
 void USplatPakComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
 {
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
+	UpdateLoadingVeil(DeltaTime);
 	if (!bStreaming || !SplatPakAsset)
 	{
 		if (Runtime.IsValid() || StreamLevels.IsValid() || RuntimeInit.IsValid()) StopStream();
@@ -426,6 +663,7 @@ void USplatPakComponent::TickComponent(float DeltaTime, ELevelTick TickType, FAc
 	const float HalfFovX = FMath::Atan(FMath::Tan(FovY * 0.5f) * Aspect);
 	const FMatrix Projection = FReversedZPerspectiveMatrix(HalfFovX, Aspect, 1.0f, GNearClippingPlane);
 	const FMatrix ModelToClip = ModelToWorld * ViewMatrix * Projection;
+	LastModelToClip = ModelToClip;
 
 	Splat::StreamCamera& Camera = Runtime->camera;
 	Camera.explicitView = true;
@@ -445,10 +683,12 @@ void USplatPakComponent::TickComponent(float DeltaTime, ELevelTick TickType, FAc
 	{
 		const Splat::XMFLOAT3& C = Runtime->m_center;
 		const float Distance = FMath::Sqrt(FMath::Square(Camera.eye.x - C.x) + FMath::Square(Camera.eye.y - C.y) + FMath::Square(Camera.eye.z - C.z));
-		Runtime->settings.lodPixelSpacing = LodPixelSpacing;
+		// Always finest: a spacing far below a pixel, so every block in view wants level 0
+		Runtime->settings.lodPixelSpacing = bAlwaysFinest ? 0.01f : LodPixelSpacing;
 		const int32 MaxLevel = (int32)Runtime->m_lodStreamChunks.size() - 1;
 		LevelCooldown = FMath::Max(0.0f, LevelCooldown - DeltaTime);
-		if (LevelCooldown <= 0.0f && MaxLevel > 0)
+		if (bAlwaysFinest) ViewLevel = 0;
+		else if (LevelCooldown <= 0.0f && MaxLevel > 0)
 		{
 			const float Target = Runtime->ContinuousLodAtDistance(Distance, true);
 			int32 NewLevel = ViewLevel;
@@ -460,6 +700,13 @@ void USplatPakComponent::TickComponent(float DeltaTime, ELevelTick TickType, FAc
 				LevelCooldown = 0.75f;
 			}
 		}
+	}
+
+	// Held (SetStreamHold): ready, but not streaming yet; the resident level draws meanwhile
+	if (bStreamHold)
+	{
+		PushStreamSettings();
+		return;
 	}
 
 	// 4. The settings, as SplatPak's Streaming tab sets them, then one step of the stream
@@ -474,7 +721,9 @@ void USplatPakComponent::TickComponent(float DeltaTime, ELevelTick TickType, FAc
 	S.bandwidthThrottleMBps = BandwidthMBps;
 	S.releaseUnusedSegments = bReleaseUnusedSegments;
 	S.streamingPolicy = StreamingPolicy == ESplatPakStreamingPolicy::Conservative ? Splat::StreamSettings::Policy::Conservative : Splat::StreamSettings::Policy::Greedy;
-	S.enableDitheredTransitions = bDitheredTransitions;
+	// Always finest: no cross-fades, so no refinement pacing either (the runtime caps the refinement starts per frame only
+	// while dithering, which held Cthulhu at its coarser levels for many seconds after its finest blocks had arrived)
+	S.enableDitheredTransitions = bDitheredTransitions && !bAlwaysFinest;
 	S.ditherTransitionDurationSec = 0.75f;
 	S.showChunkStream = bRefinementVisualizer;
 	S.chunkStreamDuration = FadeDuration;
@@ -486,7 +735,7 @@ void USplatPakComponent::TickComponent(float DeltaTime, ELevelTick TickType, FAc
 	S.residencyRingRadius = S.environmentScene ? FMath::Clamp(SplatPakAsset->CoreRadius, 3.0f, 30.0f) : 0.0f;
 	// An environment streams Conservative (the view and the ring, not the whole scene in the background), whatever the
 	// Streaming Policy property says; that property applies to objects
-	if (S.environmentScene) S.streamingPolicy = Splat::StreamSettings::Policy::Conservative;
+	if (S.environmentScene) S.streamingPolicy = bGreedyEnvironment ? Splat::StreamSettings::Policy::Greedy : Splat::StreamSettings::Policy::Conservative;
 	// The subject (where the training cameras converge) streams first
 	if (SplatPakAsset && SplatPakAsset->SubjectRadius > 0.0f)
 	{

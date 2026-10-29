@@ -83,6 +83,8 @@ public:
 
 	virtual void OnConstruction(const FTransform& Transform) override;
 	virtual void PostLoad() override;
+	virtual void BeginPlay() override;
+	virtual void Tick(float DeltaSeconds) override;
 	virtual void BeginDestroy() override;
 #if WITH_EDITOR
 	virtual void PostEditChangeProperty(FPropertyChangedEvent& Event) override;
@@ -92,6 +94,8 @@ private:
 	void Clear();
 	void AddVolume(const FSoundStageVolume& Volume);
 	void AddPiece(const FSoundStagePiece& Piece);
+	void ApplyPiece(UChildActorComponent* Child, const FSoundStagePiece& Piece) const;
+	void ReconnectComponents();
 	UShapeComponent* MakeShape(const FSoundStageVolume& Volume, FName ComponentName);
 	void WatchStage();
 	void OnStageChanged(USoundStageAsset* Changed);
@@ -108,4 +112,12 @@ private:
 
 	TWeakObjectPtr<USoundStageAsset> WatchedStage;
 	FDelegateHandle StageChangedHandle;
+
+	// The stream sequence in play (BeginPlay, Tick): the backdrop's view, then the pieces by FSoundStagePiece::
+	// StreamOrder, then the rest of the backdrop (Greedy). INDEX_NONE once done.
+	void ReleaseStreamOrder(int32 Order);
+	int32 StreamStep = INDEX_NONE;            // 0: the backdrop's view; then the order being waited on, plus one
+	TArray<int32> StreamOrders;               // The pieces' orders, ascending, once each
+	float StreamStepSeconds = 0.0f;
+	float StreamCheckTimer = 0.0f;
 };

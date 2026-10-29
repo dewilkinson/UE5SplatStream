@@ -1,0 +1,29 @@
+// SplatPakVeil.usf
+// The loading veil (SplatPakVeil.h): one direction of a separable Gaussian blur of the scene colour, run twice (across,
+// then down) while a scan's first levels arrive, so the coarse levels read as soft rather than as specks and blobs.
+// SplatPak's LoadingBlurCS.hlsl as a pixel shader. Edges clamp to the view. The radius is three sigmas.
+
+#include "/Engine/Private/Common.ush"
+
+Texture2D InputTexture;
+int2  ViewMin;   // The view's rectangle in the texture, pixels
+int2  ViewMax;
+int2  BlurStep;  // (1, 0) across, (0, 1) down
+int   Radius;    // Taps each side
+float Sigma;     // Pixels
+
+void MainPS(float4 SvPosition : SV_POSITION, out float4 OutColor : SV_Target0)
+{
+	const int2 P = int2(SvPosition.xy);
+	const float K = -0.5 / max(1e-3, Sigma * Sigma);
+	float4 Sum = 0.0;
+	float Weights = 0.0;
+	for (int T = -Radius; T <= Radius; T++)
+	{
+		const int2 Q = clamp(P + BlurStep * T, ViewMin, ViewMax - 1);
+		const float W = exp(K * (float)(T * T));
+		Sum += InputTexture.Load(int3(Q, 0)) * W;
+		Weights += W;
+	}
+	OutColor = Sum / Weights;
+}

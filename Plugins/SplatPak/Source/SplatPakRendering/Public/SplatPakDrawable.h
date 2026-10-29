@@ -27,6 +27,10 @@ struct FSplatPakDrawSettings
 	float Coverage = 1.2f;    // Disc radius as a multiple of the level's point spacing (Auto Splat Size)
 	ESplatPakOrient Orient = ESplatPakOrient::Disc;
 	float EmissiveIntensity = 1.0f; // Multiplies the stored colour, which is drawn as emissive light
+	// A colour grade on the stored colour in linear space, colour * Gain + Offset (USplatPakComponent::MatchColours fits
+	// it to the scene around an object, so a sculpture's own capture lighting and white balance meet the room's)
+	FVector3f ColourGain = FVector3f::OneVector;
+	FVector3f ColourOffset = FVector3f::ZeroVector;
 	// Streaming only (FSplatPakStreamSource): the cross-fade dither and the Refinement Visualizer's arrival glow
 	bool  bDitheredTransitions = true;
 	bool  bRefinementVisualizer = true;
@@ -35,9 +39,25 @@ struct FSplatPakDrawSettings
 	// The occluder and shadow meshes behind the splats (SplatPak's gap fill): the occluder writes depth, the shadow mesh
 	// covers the gaps between sparse splats in their colours
 	bool  bShadowMeshFill = true;
+	// Without the fill: the occluder alone, into depth only (no colour), pushed back from the eye by OccluderPushBack of
+	// its distance, so objects behind the scan's walls are hidden (Gaussians write no depth of their own)
+	bool  bOccluderDepth = false;
+	float OccluderPushBack = 0.03f;
 	// Streaming only: draw as sorted 3D Gaussians, alpha-blended back to front (as SplatPak draws a splat package); off,
 	// as opaque discs
 	bool  bGaussians = true;
+	// An environment scan (viewed from inside, around the objects placed in it): drawn before the objects, since the
+	// Gaussians write no depth and a scan drawn later would blend its background over them
+	bool  bEnvironment = false;
+	// A drop shadow (SplatPakDropShadow.h): the shadow mesh, and a box in world space, projected along the direction
+	// (world, normalised, pointing down) onto the plane z = FloorZ, as a soft darkening of what the view drew
+	bool  bDropShadow = false;
+	FVector3f DropShadowDirection = FVector3f(0.0f, 0.0f, -1.0f);
+	float DropShadowOpacity = 0.5f;
+	float DropShadowFloorZ = 0.0f;
+	bool  bDropShadowBox = false;
+	FVector3f DropShadowBoxMin = FVector3f::ZeroVector;
+	FVector3f DropShadowBoxMax = FVector3f::ZeroVector;
 	// Lit mode: the discs are written into Unreal's GBuffer after the base pass, so its lights, shadows and Lumen shade
 	// them. Always discs (never Gaussians), without the gap fill; deferred shading without Substrate only, else unlit.
 	bool  bLit = false;
@@ -105,6 +125,13 @@ public:
 
 	static const TArray<FSplatPakDrawable*>& GetRegisteredDrawables();
 
+	bool IsEnvironment() const { return Settings.bEnvironment; }
+
+	// Render thread: whether this drawable casts a drop shadow, and its silhouette on the floor into Mask (R8, max
+	// blended, depth-tested against SceneDepth so it hides behind opaque geometry). SplatPakDropShadow.cpp.
+	bool HasDropShadow() const { return Settings.bDropShadow; }
+	void AddDropShadowMask(FRDGBuilder& GraphBuilder, const FViewInfo& View, FRDGTextureRef Mask, FRDGTextureRef SceneDepth) const;
+
 	uint32 GetGPUMemoryBytes() const;
 
 protected:
@@ -127,6 +154,8 @@ private:
 	mutable TRefCountPtr<FRDGPooledBuffer> ShadowColourBuffer;
 	mutable TRefCountPtr<FRDGPooledBuffer> ShadowIndexBuffer;
 	mutable TRefCountPtr<FRDGPooledBuffer> ShadowNormalBuffer;    // Lit mode: the shadow mesh's smooth vertex normals
+	mutable TRefCountPtr<FRDGPooledBuffer> DropShadowBoxPositions; // The drop shadow's box: its eight corners (world) and twelve triangles
+	mutable TRefCountPtr<FRDGPooledBuffer> DropShadowBoxIndices;
 	mutable std::vector<float> ShadowNormals;                      // Their CPU copy, computed on first use (the upload reads it)
 	// Lit mode: the shadow mesh's smooth world normals and clip w into a screen-sized target; null without a shadow mesh
 	FRDGTextureRef AddMeshNormalPass(FRDGBuilder& GraphBuilder, const FViewInfo& View, const FMatrix44f& ModelToClip, const FMatrix44f& ModelToWorldNormal,

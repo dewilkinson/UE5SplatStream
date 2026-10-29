@@ -63,6 +63,36 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pedestal|Lighting", meta = (ClampMin = "0.0", EditCondition = "bUplight"))
 	float UplightCandelas = 300.0f;
 
+	// A drop shadow of the sculpture and its plinth on the floor the actor stands on, cast along DropShadowDirection
+	// (world, the way the light travels; an effect, since the splats around are baked light and take no shadows)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pedestal|Lighting")
+	bool bDropShadow = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pedestal|Lighting", meta = (EditCondition = "bDropShadow"))
+	FVector DropShadowDirection = FVector(0.6, 0.5, -0.6);
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pedestal|Lighting", meta = (ClampMin = "0.0", ClampMax = "1.0", EditCondition = "bDropShadow"))
+	float DropShadowOpacity = 0.5f;
+
+	// The sculpture's colours graded toward this scan's around it (USplatPakComponent::MatchColours), so it sits in the
+	// room rather than looking pasted on: by ColourMatch (0 = as captured), sampled within ColourMatchRadius (cm)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pedestal|Colour Match")
+	TObjectPtr<USplatPakComponent> ColourMatchScene;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pedestal|Colour Match", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float ColourMatch = 0.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pedestal|Colour Match", meta = (ClampMin = "10.0", UIMax = "1000.0"))
+	float ColourMatchRadius = 300.0f;
+
+	// The plinth's colour (its material's "Colour" parameter) set to the room's mean colour the match measured
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pedestal|Colour Match")
+	bool bPlinthMatchesRoom = true;
+
+	// The sculpture at its finest level whenever it is in view (USplatPakComponent::bAlwaysFinest)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Pedestal")
+	bool bSculptureAlwaysFinest = false;
+
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Pedestal")
 	TObjectPtr<UStaticMeshComponent> PlinthComponent;
 

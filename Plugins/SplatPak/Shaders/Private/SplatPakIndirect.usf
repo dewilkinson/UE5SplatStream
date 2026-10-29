@@ -1,0 +1,20 @@
+// SplatPakIndirect.usf
+// Writes the disc pass's mesh-shader dispatch on the GPU (r.SplatPak.IndirectDispatch): one amplification group per
+// MeshletsPerGroup meshlets, folded into Y past the 65535-group limit of X, as the CPU path computes it
+// (FSplatPakDrawable::AddDiscPass). The argument layout is D3D12_DISPATCH_MESH_ARGUMENTS: X, Y, Z.
+
+#include "/Engine/Private/Common.ush"
+
+RWBuffer<uint> RWArgs;
+uint MeshletCount;
+uint MeshletsPerGroup;
+
+[numthreads(1, 1, 1)]
+void DiscArgsCS()
+{
+	const uint Groups = (MeshletCount + MeshletsPerGroup - 1) / MeshletsPerGroup;
+	const uint X = min(Groups, 65535u);
+	RWArgs[0] = X;
+	RWArgs[1] = X > 0 ? (Groups + X - 1) / X : 0;
+	RWArgs[2] = 1;
+}

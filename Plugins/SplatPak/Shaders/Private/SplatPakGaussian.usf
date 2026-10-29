@@ -272,6 +272,8 @@ float    ScaleLog2Min;
 float    ScaleLog2Max;
 float    PreExposure;
 float    EmissiveIntensity;
+float3   ColourGain;                  // The colour grade, linear: colour * ColourGain + ColourOffset
+float3   ColourOffset;
 uint     StreamFlags;                 // Bit 1: Refinement Visualizer (arrival glow)
 float    GlowIntensity;
 float    GlowHue;
@@ -432,7 +434,7 @@ void MainVS(uint VertexId : SV_VertexID, out FGaussianVSOut Out)
 	// Unreal's projection flips nothing: clip y is up, as in SplatPak's D3D projection
 	Out.Position = Clip + float4((Corner.x * V1 + Corner.y * V2) * C * ClipS, 0.0, 0.0);
 	Out.UV = (Corner * ClipS) * 0.5 + 0.5;
-	Out.Color = GaussianSRGBToLinear(saturate(Color)) * EmissiveIntensity * PreExposure;
+	Out.Color = max(GaussianSRGBToLinear(saturate(Color)) * ColourGain + ColourOffset, 0.0) * EmissiveIntensity * PreExposure;
 	Out.Alpha = Opacity;
 }
 
