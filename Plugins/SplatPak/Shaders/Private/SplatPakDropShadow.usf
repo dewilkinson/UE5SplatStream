@@ -1,24 +1,31 @@
 // SplatPakDropShadow.usf
-// The drop shadow (SplatPakDropShadow.h): a caster's triangles, already flattened onto the floor by ModelToClip, into an
-// R8 mask at its opacity (max blended, so overlapping triangles do not darken twice); then, once the mask is blurred,
-// the view's colour multiplied by one minus it.
+// The drop shadow (SplatPakDropShadow.h): a caster's triangles, flattened onto a plane by ModelToPlane (translated world
+// space), into an R8 mask at its opacity (max blended, so overlapping triangles do not darken twice), kept within
+// ClipMin..ClipMax in x and y (the plinth's top for the shadows cast on it; unbounded on the floor); then, once the mask
+// is blurred, the view's colour multiplied by one minus it.
 
 #include "/Engine/Private/Common.ush"
 
 StructuredBuffer<float> MeshPositions; // Three floats per vertex
 StructuredBuffer<uint>  MeshIndices;   // Three per triangle
-float4x4 ModelToClip;                  // Includes the projection onto the floor
+float4x4 ModelToPlane;                 // Model space to the flattened shadow, translated world
+float4x4 PlaneToClip;                  // Translated world to clip
+float2   ClipMin;                      // Translated world x and y
+float2   ClipMax;
 float    Opacity;
 
-void MaskVS(uint VertexId : SV_VertexID, out float4 Position : SV_POSITION)
+void MaskVS(uint VertexId : SV_VertexID, out float4 Position : SV_POSITION, out float2 PlaneXY : TEXCOORD0)
 {
 	const uint I = MeshIndices[VertexId];
 	const float3 P = float3(MeshPositions[I * 3], MeshPositions[I * 3 + 1], MeshPositions[I * 3 + 2]);
-	Position = mul(float4(P, 1.0), ModelToClip);
+	const float4 OnPlane = mul(float4(P, 1.0), ModelToPlane);
+	PlaneXY = OnPlane.xy / OnPlane.w;
+	Position = mul(OnPlane, PlaneToClip);
 }
 
-void MaskPS(float4 Position : SV_POSITION, out float4 OutColor : SV_Target0)
+void MaskPS(float4 Position : SV_POSITION, float2 PlaneXY : TEXCOORD0, out float4 OutColor : SV_Target0)
 {
+	if (any(PlaneXY < ClipMin) || any(PlaneXY > ClipMax)) discard;
 	OutColor = Opacity;
 }
 

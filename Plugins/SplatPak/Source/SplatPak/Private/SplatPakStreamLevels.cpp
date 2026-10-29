@@ -31,7 +31,7 @@ namespace
 	}
 }
 
-bool BuildSplatStreamLevels(const uint8* Data, uint64 Size, FSplatPakStreamLevels& Out, FString& OutError)
+bool BuildSplatStreamLevels(const uint8* Data, uint64 Size, FSplatPakStreamLevels& Out, FString& OutError, bool bWithSH)
 {
 	const double Start = FPlatformTime::Seconds();
 	Out = FSplatPakStreamLevels();
@@ -55,6 +55,19 @@ bool BuildSplatStreamLevels(const uint8* Data, uint64 Size, FSplatPakStreamLevel
 	Out.SHRecordBytes = H.SHRecordBytes;
 	const Splat::XMFLOAT3 FrameExtent(std::max(1e-4f, Out.BoundsMax.x - Out.BoundsMin.x), std::max(1e-4f, Out.BoundsMax.y - Out.BoundsMin.y),
 		std::max(1e-4f, Out.BoundsMax.z - Out.BoundsMin.z));
+
+	// The harmonics, when asked for: every chunk LOD's, then each level's in its records' order (below)
+	std::vector<std::vector<std::vector<uint8_t>>> ChunkSH;
+	if (bWithSH && H.SHRecordBytes > 0 && H.SHDegree > 0)
+	{
+		if (!SplatCore::DecodeSH(Data, Size, Info, ChunkSH, Error))
+		{
+			OutError = FString::Printf(TEXT("Spherical harmonics: %s"), UTF8_TO_TCHAR(Error.c_str()));
+			return false;
+		}
+	}
+	const uint32 ShBytes = ChunkSH.empty() ? 0u : H.SHRecordBytes;
+	Out.SHDegree = ShBytes > 0 ? H.SHDegree : 0u;
 
 	const int32 NumLevels = (int32)Info.MaxLevel + 1;
 	Out.Levels.resize(NumLevels);
@@ -88,6 +101,30 @@ bool BuildSplatStreamLevels(const uint8* Data, uint64 Size, FSplatPakStreamLevel
 			Splat::SplatPoint& P = R.rawSplats[k];
 			P.position = Splat::XMFLOAT3(Positions[i].X, Positions[i].Y, Positions[i].Z);
 			memcpy(&R.splats[k], Level.Records.data() + (size_t)i * Level.RecordBytes, sizeof(Splat::PackedSplatGPU));
+		}
+
+		// Its harmonics in the same order: the chunks that carry this level, in manifest order (as DecodeLevel takes
+		// them), then sorted with the records
+		if (ShBytes > 0)
+		{
+			std::vector<uint8_t> LevelSH;
+			LevelSH.reserve((size_t)N * ShBytes);
+			for (size_t c = 0; c < Info.Chunks.size(); c++)
+			{
+				const std::vector<SplatCore::FChunkLODHeader>& Lods = Info.Chunks[c].Lods;
+				for (size_t l = 0; l < Lods.size(); l++)
+				{
+					if (Lods[l].LodLevel != (uint32)L) continue;
+					const std::vector<uint8_t>& Sh = ChunkSH[c][l];
+					if (Sh.size() == (size_t)Lods[l].SplatCount * ShBytes) LevelSH.insert(LevelSH.end(), Sh.begin(), Sh.end());
+					else LevelSH.resize(LevelSH.size() + (size_t)Lods[l].SplatCount * ShBytes, 0); // None: the DC colour alone
+				}
+			}
+			if (LevelSH.size() == (size_t)N * ShBytes)
+			{
+				R.splatSH.resize((size_t)N * ShBytes);
+				for (uint32 k = 0; k < N; k++) memcpy(R.splatSH.data() + (size_t)k * ShBytes, LevelSH.data() + (size_t)Order[k].second * ShBytes, ShBytes);
+			}
 		}
 	});
 	for (int32 L = 0; L < NumLevels; L++)

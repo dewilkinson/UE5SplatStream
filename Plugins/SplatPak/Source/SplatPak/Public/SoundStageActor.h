@@ -116,6 +116,7 @@ private:
 	// The stream sequence in play (BeginPlay, Tick): the backdrop's view, then the pieces by FSoundStagePiece::
 	// StreamOrder, then the rest of the backdrop (Greedy). INDEX_NONE once done.
 	void ReleaseStreamOrder(int32 Order);
+	void UpdateHiddenPieces();
 	int32 StreamStep = INDEX_NONE;            // 0: the backdrop's view; then the order being waited on, plus one
 	TArray<int32> StreamOrders;               // The pieces' orders, ascending, once each
 	float StreamStepSeconds = 0.0f;

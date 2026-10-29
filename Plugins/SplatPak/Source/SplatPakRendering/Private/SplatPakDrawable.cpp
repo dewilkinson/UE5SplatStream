@@ -62,6 +62,12 @@ static TAutoConsoleVariable<int32> CVarSplatPakPassFill(TEXT("r.SplatPak.Pass.Fi
 	TEXT("0 = skip the gap fill (the occluder and shadow mesh drawn under the splats)."), ECVF_RenderThreadSafe);
 static TAutoConsoleVariable<float> CVarSplatPakOccluderPushBack(TEXT("r.SplatPak.OccluderPushBack"), 0.1f,
 	TEXT("How far a depth-only occluder (bOccluderDepth) is pushed back from the eye, as a share of its distance."), ECVF_RenderThreadSafe);
+static TAutoConsoleVariable<int32> CVarSplatPakDebugView(TEXT("r.SplatPak.DebugView"), 0,
+	TEXT("SplatPak's own buffer views of streamed Gaussians: 0 = off, 1 = the stored colour, 2 = splat normals (view space), 3 = depth, 4 = LOD level."), ECVF_RenderThreadSafe);
+static TAutoConsoleVariable<int32> CVarSplatPakOutline(TEXT("r.SplatPak.Outline"), 0,
+	TEXT("Streamed Gaussians drawn as their outlines (each one's elliptical edge): 0 = no (default), 1 = objects, 2 = every scan."), ECVF_RenderThreadSafe);
+static TAutoConsoleVariable<int32> CVarSplatPakSHDraw(TEXT("r.SplatPak.SH.Draw"), 1,
+	TEXT("0 = draw streamed Gaussians in their stored (DC) colour, ignoring the harmonics read for them (r.SplatPak.SH)."), ECVF_RenderThreadSafe);
 static TAutoConsoleVariable<int32> CVarSplatPakColourMatch(TEXT("r.SplatPak.ColourMatch"), 1,
 	TEXT("0 = draw every scan in its captured colours, without its colour grade (USplatPakComponent::MatchColours)."), ECVF_RenderThreadSafe);
 static TAutoConsoleVariable<int32> CVarSplatPakPassLit(TEXT("r.SplatPak.Pass.Lit"), 1,
@@ -144,6 +150,7 @@ void FSplatPakDrawable::SetStreamSource_RenderThread(FSplatPakStreamSourcePtr So
 	Stream = MoveTemp(Source);
 	StreamMeshlets.Reset();
 	StreamRecordsBuffer.SafeRelease();
+	StreamSHBuffer.SafeRelease();
 }
 
 const TArray<FSplatPakDrawable*>& FSplatPakDrawable::GetRegisteredDrawables()
@@ -682,6 +689,30 @@ void FSplatPakDrawable::AddGaussianPasses(FRDGBuilder& GraphBuilder, const FView
 	const FVector3f ForwardModel = FVector3f(FVector(WorldToModel.TransformVector(View.GetViewDirection())).GetSafeNormal());
 	const FMatrix ModelToView = ModelToWorld * View.ViewMatrices.GetViewMatrix();
 
+	// Outline mode (r.SplatPak.Outline): each Gaussian's edge only, for objects or for every scan
+	const int32 OutlineMode = CVarSplatPakOutline.GetValueOnRenderThread();
+	const bool bOutline = OutlineMode >= 2 || (OutlineMode == 1 && !Settings.bEnvironment);
+
+	// The harmonics (view-dependent colour), uploaded once like the records; a single zero word when the scan has none
+	const bool bSH = Stream.IsValid() && Stream->SHDegree > 0 && !Stream->SHWords.empty() && CVarSplatPakSHDraw.GetValueOnRenderThread() != 0;
+	FRDGBufferRef SHWords;
+	if (bSH && StreamSHBuffer.IsValid())
+	{
+		SHWords = GraphBuilder.RegisterExternalBuffer(StreamSHBuffer);
+	}
+	else if (bSH)
+	{
+		SHWords = GraphBuilder.CreateBuffer(FRDGBufferDesc::CreateStructuredDesc(sizeof(uint32), (uint32)Stream->SHWords.size()), TEXT("SplatPak.StreamSH"));
+		GraphBuilder.QueueBufferUpload(SHWords, Stream->SHWords.data(), Stream->SHWords.size() * sizeof(uint32), ERDGInitialDataFlags::NoCopy);
+		StreamSHBuffer = GraphBuilder.ConvertToExternalBuffer(SHWords);
+	}
+	else
+	{
+		static const uint32 Zero = 0;
+		SHWords = GraphBuilder.CreateBuffer(FRDGBufferDesc::CreateStructuredDesc(sizeof(uint32), 1), TEXT("SplatPak.NoSH"));
+		GraphBuilder.QueueBufferUpload(SHWords, &Zero, sizeof(uint32), ERDGInitialDataFlags::NoCopy);
+	}
+
 	auto Fill = [&](auto* P)
 	{
 		P->ModelToClip = Disc.ModelToClip;
@@ -704,10 +735,13 @@ void FSplatPakDrawable::AddGaussianPasses(FRDGBuilder& GraphBuilder, const FView
 		P->EmissiveIntensity = Disc.EmissiveIntensity;
 		P->ColourGain = Disc.ColourGain;
 		P->ColourOffset = Disc.ColourOffset;
-		P->StreamFlags = Disc.StreamFlags;
+		P->StreamFlags = Disc.StreamFlags | (bOutline ? 4u : 0u);
 		P->GlowIntensity = Disc.GlowIntensity;
 		P->GlowHue = Disc.GlowHue;
 		for (int32 i = 0; i < 2; i++) P->LevelRadii[i] = Disc.LevelRadii[i];
+		P->SHDegree = bSH ? Stream->SHDegree : 0u;
+		P->SHRecordBytes = bSH ? Stream->SHRecordBytes : 0u;
+		P->DebugView = (uint32)FMath::Clamp(CVarSplatPakDebugView.GetValueOnRenderThread(), 0, 4);
 	};
 	FGlobalShaderMap* ShaderMap = GetGlobalShaderMap(View.FeatureLevel);
 	auto SortParameters = [&](uint32 Pass, FRDGBufferRef In, FRDGBufferRef Out)
@@ -751,6 +785,7 @@ void FSplatPakDrawable::AddGaussianPasses(FRDGBuilder& GraphBuilder, const FView
 	P->Meshlets = GraphBuilder.CreateSRV(Meshlets);
 	P->SortedPairs = GraphBuilder.CreateSRV(Pairs[0]);
 	P->SortedSlotInfo = GraphBuilder.CreateSRV(SlotInfo);
+	P->SHWords = GraphBuilder.CreateSRV(SHWords);
 	P->RenderTargets[0] = FRenderTargetBinding(SceneColor, ERenderTargetLoadAction::ELoad);
 	P->RenderTargets.DepthStencil = FDepthStencilBinding(SceneDepth, ERenderTargetLoadAction::ELoad, FExclusiveDepthStencil::DepthRead_StencilNop);
 	TShaderMapRef<FSplatPakGaussianVS> VertexShader(ShaderMap);

@@ -164,6 +164,10 @@ namespace SplatCore
 	SPLATPAKRENDERING_API bool DecodeLevel(const uint8_t* Data, uint64_t Size, const FPackageInfo& Info, uint32_t RequestedLevel,
 		FDecodedLevel& Out, std::string& OutError, bool bExactLevel = false);
 
+	// The package's spherical harmonics, every chunk's every LOD (Out[chunk][lod], SHRecordBytes signed bytes per splat in
+	// the LOD's record order, the colour transform and residuals undone); empty when the package has none.
+	SPLATPAKRENDERING_API bool DecodeSH(const uint8_t* Data, uint64_t Size, const FPackageInfo& Info, std::vector<std::vector<std::vector<uint8_t>>>& Out, std::string& OutError);
+
 	// Model-space position of record Index (same maths as the shaders).
 	SPLATPAKRENDERING_API FVec3 DecodePosition(const FDecodedLevel& Level, uint32_t Index);
 

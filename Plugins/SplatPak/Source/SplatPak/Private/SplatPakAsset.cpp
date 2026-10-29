@@ -7,6 +7,11 @@
 #include "SplatPakPackageCore.h"
 #include "SplatPakStreamLevels.h"
 #include <PackageView.h>
+#include "HAL/IConsoleManager.h"
+
+static TAutoConsoleVariable<int32> CVarSplatPakSH(TEXT("r.SplatPak.SH"), 1,
+	TEXT("View-dependent colour (the packages' spherical harmonics) for streamed Gaussians: 0 = none, 1 = objects (default; not\n")
+	TEXT("environment scans, which would nearly double their memory), 2 = every scan. Read when a scan prepares to stream."));
 
 USplatPakAsset::USplatPakAsset()
 {
@@ -139,10 +144,13 @@ FSplatPakStreamLevelsPtr USplatPakAsset::GetStreamLevels(FString* OutError)
 	FMemory::Memcpy(Bytes->GetData(), PackageData.LockReadOnly(), Size);
 	PackageData.Unlock();
 	TSharedPtr<FString, ESPMode::ThreadSafe> Error = StreamLevelsError;
-	StreamLevelsBuild = Async(EAsyncExecution::ThreadPool, [Bytes, Error]() -> FSplatPakStreamLevelsPtr
+	// View-dependent colour (the harmonics) for objects; an environment's would nearly double its memory
+	const int32 SHMode = CVarSplatPakSH.GetValueOnGameThread();
+	const bool bWithSH = SHMode >= 2 || (SHMode == 1 && !bEnvironmentScene);
+	StreamLevelsBuild = Async(EAsyncExecution::ThreadPool, [Bytes, Error, bWithSH]() -> FSplatPakStreamLevelsPtr
 	{
 		TSharedPtr<FSplatPakStreamLevels, ESPMode::ThreadSafe> Levels = MakeShared<FSplatPakStreamLevels, ESPMode::ThreadSafe>();
-		if (!BuildSplatStreamLevels(Bytes->GetData(), (uint64)Bytes->Num(), *Levels, *Error)) return nullptr;
+		if (!BuildSplatStreamLevels(Bytes->GetData(), (uint64)Bytes->Num(), *Levels, *Error, bWithSH)) return nullptr;
 		return Levels;
 	});
 	return nullptr;

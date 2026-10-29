@@ -338,3 +338,11 @@ Problems found and fixed on the way (all in the demo scripts, not the plugin):
   distance; out of view it may release as usual, and streams back when faced (in a probe it kept level 0 while turned
   away). Timed in play from the start: released at 2 s (the stage's first step now hands over after 2 s, 75% of the
   view or not), level 0 from 9 s, complete at 20 s; the levels refine in order at about 18 MB/s unthrottled.
+- View-dependent colour: the plugin now reads a package's spherical harmonics (SplatPakPackageCore DecodeSH: the SH
+  table, decompress, unshuffle, YCoCg, residual levels, as StreamPackager does), carries them per level into the
+  stream runtime's unified SH, uploads them once, and evaluates degree 1 to 3 in the Gaussian vertex shader with
+  SplatPak's basis (added to the display-space colour, the eye to the splat in model space). For objects only by
+  default (`r.SplatPak.SH` 1; environments would nearly double their memory); `r.SplatPak.SH.Draw 0` to compare.
+  Cthulhu now has its dark bronze and gold highlights, as in SplatPak.
+- Demo: Shift toggles running, H resets the view, E restreams the ornaments only (without the veil), the vases hide
+  while the eye is in the stairwell (a stopgap: splat walls write no depth), a controls legend bottom left.

@@ -84,7 +84,10 @@ END_SHADER_PARAMETER_STRUCT()
 	SHADER_PARAMETER(uint32, StreamFlags) \
 	SHADER_PARAMETER(float, GlowIntensity) \
 	SHADER_PARAMETER(float, GlowHue) \
-	SHADER_PARAMETER_ARRAY(FVector4f, LevelRadii, [2])
+	SHADER_PARAMETER_ARRAY(FVector4f, LevelRadii, [2]) \
+	SHADER_PARAMETER(uint32, SHDegree) \
+	SHADER_PARAMETER(uint32, SHRecordBytes) \
+	SHADER_PARAMETER(uint32, DebugView)
 
 BEGIN_SHADER_PARAMETER_STRUCT(FSplatPakGaussianSortParameters, )
 	SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<uint>, Records)
@@ -102,6 +105,7 @@ BEGIN_SHADER_PARAMETER_STRUCT(FSplatPakGaussianDrawParameters, )
 	SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<FSplatPakMeshlet>, Meshlets)
 	SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<uint2>, SortedPairs)
 	SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<uint2>, SortedSlotInfo)
+	SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<uint>, SHWords) // The harmonics, SHRecordBytes per splat packed in words (one 0 when none)
 	SPLATPAK_GAUSSIAN_CONSTANTS()
 	RENDER_TARGET_BINDING_SLOTS()
 END_SHADER_PARAMETER_STRUCT()

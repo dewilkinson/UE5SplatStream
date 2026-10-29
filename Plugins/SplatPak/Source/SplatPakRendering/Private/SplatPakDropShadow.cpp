@@ -28,7 +28,10 @@ static TAutoConsoleVariable<float> CVarSplatPakDropShadowBlur(
 BEGIN_SHADER_PARAMETER_STRUCT(FSplatPakDropShadowMaskParameters, )
 	SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<float>, MeshPositions)
 	SHADER_PARAMETER_RDG_BUFFER_SRV(StructuredBuffer<uint>, MeshIndices)
-	SHADER_PARAMETER(FMatrix44f, ModelToClip)
+	SHADER_PARAMETER(FMatrix44f, ModelToPlane)
+	SHADER_PARAMETER(FMatrix44f, PlaneToClip)
+	SHADER_PARAMETER(FVector2f, ClipMin)
+	SHADER_PARAMETER(FVector2f, ClipMax)
 	SHADER_PARAMETER(float, Opacity)
 	RENDER_TARGET_BINDING_SLOTS()
 END_SHADER_PARAMETER_STRUCT()
@@ -78,7 +81,12 @@ void FSplatPakDrawable::AddDropShadowMask(FRDGBuilder& GraphBuilder, const FView
 	const FVector Direction(Settings.DropShadowDirection);
 	if (Direction.Z > -0.05) return;
 	const FMatrix Projection = SplatPakDropShadow::FloorProjection(Direction, Settings.DropShadowFloorZ);
-	const FMatrix WorldToClip = FTranslationMatrix(View.ViewMatrices.GetPreViewTranslation()) * View.ViewMatrices.GetTranslatedWorldToClip();
+	// The shadow is flattened in world space, then taken to translated world (precise far from the origin) for the clip
+	// rectangle and the projection
+	const FVector PreView = View.ViewMatrices.GetPreViewTranslation();
+	const FMatrix ToTranslated = FTranslationMatrix(PreView);
+	const FMatrix44f PlaneToClip = FMatrix44f(View.ViewMatrices.GetTranslatedWorldToClip());
+	const FVector2f Unbounded(1.0e9f, 1.0e9f);
 	TShaderMapRef<FSplatPakDropShadowMaskVS> VertexShader(View.ShaderMap);
 	TShaderMapRef<FSplatPakDropShadowMaskPS> PixelShader(View.ShaderMap);
 	const FIntRect ViewRect = View.ViewRect;
@@ -91,13 +99,17 @@ void FSplatPakDrawable::AddDropShadowMask(FRDGBuilder& GraphBuilder, const FView
 		Pooled = GraphBuilder.ConvertToExternalBuffer(Buffer);
 		return Buffer;
 	};
-	auto Draw = [&](FRDGBufferRef Positions, FRDGBufferRef Indices, uint32 IndexCount, const FMatrix& LocalToClip, const TCHAR* Name)
+	auto Draw = [&](FRDGBufferRef Positions, FRDGBufferRef Indices, uint32 IndexCount, const FMatrix& LocalToPlane, const FVector2f& ClipMin,
+		const FVector2f& ClipMax, float Opacity, const TCHAR* Name)
 	{
 		FSplatPakDropShadowMaskParameters* P = GraphBuilder.AllocParameters<FSplatPakDropShadowMaskParameters>();
 		P->MeshPositions = GraphBuilder.CreateSRV(Positions);
 		P->MeshIndices = GraphBuilder.CreateSRV(Indices);
-		P->ModelToClip = FMatrix44f(LocalToClip);
-		P->Opacity = Settings.DropShadowOpacity;
+		P->ModelToPlane = FMatrix44f(LocalToPlane * ToTranslated);
+		P->PlaneToClip = PlaneToClip;
+		P->ClipMin = ClipMin;
+		P->ClipMax = ClipMax;
+		P->Opacity = Opacity;
 		P->RenderTargets[0] = FRenderTargetBinding(Mask, ERenderTargetLoadAction::ELoad);
 		P->RenderTargets.DepthStencil = FDepthStencilBinding(SceneDepth, ERenderTargetLoadAction::ELoad, FExclusiveDepthStencil::DepthRead_StencilNop);
 		GraphBuilder.AddPass(RDG_EVENT_NAME("SplatPak.DropShadow.%s (%u triangles)", Name, IndexCount / 3), P, ERDGPassFlags::Raster,
@@ -127,7 +139,20 @@ void FSplatPakDrawable::AddDropShadowMask(FRDGBuilder& GraphBuilder, const FView
 	{
 		FRDGBufferRef Positions = Upload(ShadowPositionBuffer, sizeof(float), (uint32)Data.ShadowPositions.size() * 3, Data.ShadowPositions.data(), TEXT("SplatPak.ShadowPositions"));
 		FRDGBufferRef Indices = Upload(ShadowIndexBuffer, sizeof(uint32), (uint32)Data.ShadowIndices.size(), Data.ShadowIndices.data(), TEXT("SplatPak.ShadowIndices"));
-		Draw(Positions, Indices, ShadowIndexCount, GetModelToWorld() * Projection * WorldToClip, TEXT("ShadowMesh"));
+		Draw(Positions, Indices, ShadowIndexCount, GetModelToWorld() * Projection, -Unbounded, Unbounded, Settings.DropShadowOpacity, TEXT("ShadowMesh"));
+
+		// On the plinth's top as well, kept within it (inset a centimetre): the sun's shadow, and a contact shadow straight
+		// down under the base, so the sculpture stands on the stone rather than floating over it
+		if (Settings.bDropShadowBox)
+		{
+			const double TopZ = Settings.DropShadowBoxMax.Z + 0.5;
+			const FVector2f TopMin = FVector2f(Settings.DropShadowBoxMin.X + 1.0f, Settings.DropShadowBoxMin.Y + 1.0f) + FVector2f((float)PreView.X, (float)PreView.Y);
+			const FVector2f TopMax = FVector2f(Settings.DropShadowBoxMax.X - 1.0f, Settings.DropShadowBoxMax.Y - 1.0f) + FVector2f((float)PreView.X, (float)PreView.Y);
+			Draw(Positions, Indices, ShadowIndexCount, GetModelToWorld() * SplatPakDropShadow::FloorProjection(Direction, TopZ), TopMin, TopMax,
+				Settings.DropShadowOpacity, TEXT("ShadowMeshOnTop"));
+			Draw(Positions, Indices, ShadowIndexCount, GetModelToWorld() * SplatPakDropShadow::FloorProjection(FVector(0.0, 0.0, -1.0), TopZ), TopMin, TopMax,
+				0.8f * Settings.DropShadowOpacity, TEXT("ContactOnTop"));
+		}
 	}
 
 	// The box (the plinth), in world space
@@ -149,7 +174,7 @@ void FSplatPakDrawable::AddDropShadowMask(FRDGBuilder& GraphBuilder, const FView
 			Upload(DropShadowBoxIndices, sizeof(uint32), 36, BoxIndices, TEXT("SplatPak.DropShadowBoxIndices"));
 		}
 		Draw(GraphBuilder.RegisterExternalBuffer(DropShadowBoxPositions), GraphBuilder.RegisterExternalBuffer(DropShadowBoxIndices), 36,
-			Projection * WorldToClip, TEXT("Box"));
+			Projection, -Unbounded, Unbounded, Settings.DropShadowOpacity, TEXT("Box"));
 	}
 }
 

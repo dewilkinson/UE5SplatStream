@@ -287,6 +287,7 @@ bool USoundStageAsset::ImportSpec(const FString& Json, FString& OutError)
 			if (O->TryGetNumberField(TEXT("match"), D)) { P.ColourMatch = (float)FMath::Clamp(D, 0.0, 1.0); }
 			if (O->TryGetNumberField(TEXT("stream_order"), D)) { P.StreamOrder = FMath::Max(0, (int32)D); }
 			O->TryGetBoolField(TEXT("finest"), P.bAlwaysFinest);
+			if (O->TryGetNumberField(TEXT("hide_below_eye"), D)) { P.HideBelowEye = (float)D; }
 			Pieces.Add(P);
 		}
 	}
@@ -363,6 +364,7 @@ FString USoundStageAsset::ExportSpec() const
 		if (P.ColourMatch >= 0.0f) { O->SetNumberField(TEXT("match"), P.ColourMatch); }
 		if (P.StreamOrder != 1) { O->SetNumberField(TEXT("stream_order"), P.StreamOrder); }
 		if (P.bAlwaysFinest) { O->SetBoolField(TEXT("finest"), true); }
+		if (P.HideBelowEye > -1.0e5f) { O->SetNumberField(TEXT("hide_below_eye"), P.HideBelowEye); }
 		PieceList.Add(MakeShared<FJsonValueObject>(O));
 	}
 	Root->SetArrayField(TEXT("pieces"), PieceList);

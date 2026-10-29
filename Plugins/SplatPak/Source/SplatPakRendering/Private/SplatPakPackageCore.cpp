@@ -8,6 +8,7 @@
 #include "ByteShuffle.h"
 #include "PayloadDecode.h"
 #include "ColourTransform.h"
+#include "SHCoding.h"
 #include "ShadowMeshCodec.h"
 
 #include <algorithm>
@@ -327,5 +328,83 @@ namespace SplatCore
 			OutLevels.push_back(std::move(Level));
 		}
 		return !OutLevels.empty();
+	}
+
+	// The SH section (as StreamPackager::LoadSFLWFile in 3DGSStream reads it): a table of one record per chunk LOD in
+	// manifest order, each payload compressed and byte-shuffled like the records; then the colour transform, and the
+	// residual levels restored from the coarsest down (SHCoding.h), which needs every level's records for its positions.
+	bool DecodeSH(const uint8_t* Data, uint64_t Size, const FPackageInfo& Info, std::vector<std::vector<std::vector<uint8_t>>>& Out, std::string& OutError)
+	{
+		Out.clear();
+		const FFileHeader& H = Info.Header;
+		const uint32_t ShBytes = H.SHRecordBytes;
+		if (ShBytes == 0 || H.SHManifestOffset == 0 || Info.Format != ERecordFormat::Splat20) return true; // No harmonics
+		struct FSHLODRecord { uint64_t FileOffset; uint32_t CompressedByteSize; uint32_t UncompressedByteSize; };
+		static_assert(sizeof(FSHLODRecord) == 16, "FSHLODRecord must match SHLODRecord");
+		size_t LodCount = 0;
+		for (const FChunk& Chunk : Info.Chunks) LodCount += Chunk.Lods.size();
+		if (H.SHManifestOffset + LodCount * sizeof(FSHLODRecord) > Size) { OutError = "The spherical-harmonics table extends past the end of the file."; return false; }
+		std::vector<FSHLODRecord> Table(LodCount);
+		memcpy(Table.data(), Data + H.SHManifestOffset, LodCount * sizeof(FSHLODRecord));
+
+		const bool bYCoCg = (H.PayloadTransforms & Splat::PAYLOAD_TRANSFORM_SH_YCOCG) != 0;
+		const bool bResidual = (H.PayloadTransforms & Splat::PAYLOAD_TRANSFORM_SH_RESIDUAL) != 0;
+		Out.resize(Info.Chunks.size());
+		std::vector<uint8_t> Shuffled;
+		size_t r = 0;
+		for (size_t c = 0; c < Info.Chunks.size(); c++)
+		{
+			const std::vector<FChunkLODHeader>& Lods = Info.Chunks[c].Lods;
+			Out[c].resize(Lods.size());
+			for (size_t l = 0; l < Lods.size(); l++)
+			{
+				const FSHLODRecord& S = Table[r++];
+				if (S.CompressedByteSize == 0 || (uint64_t)S.UncompressedByteSize != (uint64_t)Lods[l].SplatCount * ShBytes) continue;
+				if (S.FileOffset + S.CompressedByteSize > Size) { OutError = "A spherical-harmonics payload extends past the end of the file."; return false; }
+				Shuffled.resize(S.UncompressedByteSize);
+				if (!Splat::PayloadDecode::Decompress(Data + S.FileOffset, S.CompressedByteSize, Shuffled.data(), S.UncompressedByteSize, H.PayloadCodec))
+				{
+					OutError = Format("Chunk %llu LOD %llu holds spherical-harmonics data this codec build cannot decode.", c, l);
+					return false;
+				}
+				std::vector<uint8_t>& Sh = Out[c][l];
+				Sh.resize(S.UncompressedByteSize);
+				Splat::ByteShuffle::Unshuffle(Shuffled.data(), Sh.data(), Lods[l].SplatCount, ShBytes);
+				// A residual level (every one but the chunk's coarsest) is restored below, once its parent is
+				if (bYCoCg && !(bResidual && l + 1 < Lods.size())) Splat::ColourTransform::UndoSH(Sh.data(), Sh.size());
+			}
+		}
+		if (!bResidual) return true;
+
+		uint8_t Bits[3];
+		Splat::SHCoding::UnpackBits(H.PayloadTransforms, Bits);
+		std::vector<std::vector<uint8_t>> Records;
+		for (size_t c = 0; c < Info.Chunks.size(); c++)
+		{
+			const std::vector<FChunkLODHeader>& Lods = Info.Chunks[c].Lods;
+			if (Lods.size() < 2) continue;
+			Records.assign(Lods.size(), {});
+			std::vector<const uint8_t*> RecordPtrs(Lods.size());
+			std::vector<size_t> Counts(Lods.size());
+			std::vector<std::vector<uint8_t>*> ShPtrs(Lods.size());
+			for (size_t l = 0; l < Lods.size(); l++)
+			{
+				if (Out[c][l].size() != (size_t)Lods[l].SplatCount * ShBytes) { OutError = Format("Chunk %llu LOD %llu has no spherical harmonics, which its finer levels are coded against.", c, l); return false; }
+				Shuffled.resize(Lods[l].UncompressedByteSize);
+				if (!Splat::PayloadDecode::Decompress(Data + Lods[l].FileOffset, Lods[l].CompressedByteSize, Shuffled.data(), Lods[l].UncompressedByteSize, H.PayloadCodec))
+				{
+					OutError = Format("Chunk %llu LOD %llu holds data this codec build cannot decode.", c, l);
+					return false;
+				}
+				Records[l].resize(Lods[l].UncompressedByteSize);
+				Splat::ByteShuffle::Unshuffle(Shuffled.data(), Records[l].data(), Lods[l].SplatCount, Info.RecordBytes);
+				if (H.PayloadTransforms & Splat::PAYLOAD_TRANSFORM_RECORD_YCOCG) Splat::ColourTransform::UndoRecords(Records[l].data(), Lods[l].SplatCount, Info.RecordBytes);
+				RecordPtrs[l] = Records[l].data();
+				Counts[l] = Lods[l].SplatCount;
+				ShPtrs[l] = &Out[c][l];
+			}
+			Splat::SHCoding::DecodeResiduals(RecordPtrs, Counts, Info.RecordBytes, ShPtrs, ShBytes, Bits);
+		}
+		return true;
 	}
 }

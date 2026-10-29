@@ -118,8 +118,8 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SplatPak|Streaming", meta = (EditCondition = "bStreaming"))
 	bool bDitheredTransitions = true;
 
-	// Blurs the whole view while the stream initialises and until the view's blocks are drawn at the two finest levels
-	// they need (their own target level, or the next coarser one), easing out from 60% of them to 95% (SplatPak's
+	// Blurs the whole view while the stream initialises, until the scan's two coarsest levels are resident and drawing
+	// (the scene whole, if coarse), then eases out over about half a second while the finer levels refine (SplatPak's
 	// Loading Blur, SplatPakVeil.h). Armed when the scan appears and by Evict and Restream; gives up after Veil Timeout.
 	// In game worlds only: play in editor and packaged games, not the editor viewport.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SplatPak|Streaming|Loading Veil", meta = (EditCondition = "bStreaming"))
@@ -131,6 +131,10 @@ public:
 	// Veils the view again until it has loaded (as a new scan does).
 	UFUNCTION(BlueprintCallable, Category = "SplatPak|Streaming|Loading Veil")
 	void ArmLoadingVeil();
+
+	// Drops the veil at once, until the next arm (an Evict that should be watched streaming back in, for one)
+	UFUNCTION(BlueprintCallable, Category = "SplatPak|Streaming|Loading Veil")
+	void CancelLoadingVeil();
 
 	// The share of the view's drawn blocks at the two finest levels they need, 0..1 (refreshed four times a second
 	// while the veil is armed), and the veil's strength now, 0..1.

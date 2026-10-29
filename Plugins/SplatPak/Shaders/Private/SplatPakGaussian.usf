@@ -278,6 +278,53 @@ uint     StreamFlags;                 // Bit 1: Refinement Visualizer (arrival g
 float    GlowIntensity;
 float    GlowHue;
 float4   LevelRadii[2];               // Point spacing per level (model units): the coarse levels' scale cap
+uint     SHDegree;                    // The harmonics' degree (0: the stored colour alone)
+uint     SHRecordBytes;               // Signed bytes per splat in SHWords
+uint     DebugView;                   // SplatPak's own buffer views (r.SplatPak.DebugView): 1 base colour, 2 normal, 3 depth, 4 level
+StructuredBuffer<uint> SHWords;       // The harmonics, the records' order, bytes packed into words (draw stage only)
+
+// One signed byte of the harmonics, byte B of a splat's SHRecordBytes (SplatPak's LoadSHByte)
+float GaussianSHByte(uint SplatIndex, uint B)
+{
+	const uint Addr = SplatIndex * SHRecordBytes + B;
+	const uint Byte = (SHWords[Addr >> 2] >> ((Addr & 3u) * 8u)) & 0xFFu;
+	return (float)((int)(Byte << 24) >> 24);
+}
+
+// Coefficient K's colour triple (coefficient-major, three channels each)
+float3 GaussianSHTriple(uint SplatIndex, uint K, float Scale)
+{
+	return float3(GaussianSHByte(SplatIndex, 3u * K), GaussianSHByte(SplatIndex, 3u * K + 1u), GaussianSHByte(SplatIndex, 3u * K + 2u)) * Scale;
+}
+
+// The harmonics above the DC term for a unit direction from the eye to the splat, model space: the 3DGS basis and order,
+// exactly as SplatPak's EvalSH (Splat.hlsl), added to the display-space colour before its conversion to linear
+float3 GaussianEvalSH(uint SplatIndex, float Scale, float3 Dir)
+{
+	const float SH_C1 = 0.4886025119029199;
+	const float x = Dir.x, y = Dir.y, z = Dir.z;
+	float3 Result = SH_C1 * (-GaussianSHTriple(SplatIndex, 0u, Scale) * y + GaussianSHTriple(SplatIndex, 1u, Scale) * z - GaussianSHTriple(SplatIndex, 2u, Scale) * x);
+	if (SHDegree > 1u)
+	{
+		const float xx = x * x, yy = y * y, zz = z * z, xy = x * y, yz = y * z, xz = x * z;
+		Result += GaussianSHTriple(SplatIndex, 3u, Scale) * (1.0925484305920792 * xy)
+			+ GaussianSHTriple(SplatIndex, 4u, Scale) * (-1.0925484305920792 * yz)
+			+ GaussianSHTriple(SplatIndex, 5u, Scale) * (0.31539156525252005 * (2.0 * zz - xx - yy))
+			+ GaussianSHTriple(SplatIndex, 6u, Scale) * (-1.0925484305920792 * xz)
+			+ GaussianSHTriple(SplatIndex, 7u, Scale) * (0.5462742152960396 * (xx - yy));
+		if (SHDegree > 2u)
+		{
+			Result += GaussianSHTriple(SplatIndex, 8u, Scale) * (-0.5900435899266435 * y * (3.0 * xx - yy))
+				+ GaussianSHTriple(SplatIndex, 9u, Scale) * (2.890611442640554 * xy * z)
+				+ GaussianSHTriple(SplatIndex, 10u, Scale) * (-0.4570457994644658 * y * (4.0 * zz - xx - yy))
+				+ GaussianSHTriple(SplatIndex, 11u, Scale) * (0.3731763325901154 * z * (2.0 * zz - 3.0 * xx - 3.0 * yy))
+				+ GaussianSHTriple(SplatIndex, 12u, Scale) * (-0.4570457994644658 * x * (4.0 * zz - xx - yy))
+				+ GaussianSHTriple(SplatIndex, 13u, Scale) * (1.445305721320277 * z * (xx - yy))
+				+ GaussianSHTriple(SplatIndex, 14u, Scale) * (-0.5900435899266435 * x * (xx - 3.0 * yy));
+		}
+	}
+	return Result;
+}
 
 struct FGaussianVSOut
 {
@@ -426,7 +473,34 @@ void MainVS(uint VertexId : SV_VertexID, out FGaussianVSOut Out)
 	const float2 V2 = L2 * float2(DiagonalVector.y, -DiagonalVector.x);
 
 	float3 Color = float3((W2 >> 16) & 0xFFu, (W2 >> 24) & 0xFFu, W3 & 0xFFu) / 255.0;
+	// View-dependent colour: the harmonics for the direction from the eye, at the record's own SH scale
+	const float SHScale = f16tof32(W3 >> 16);
+	if (SHDegree > 0u && SHScale > 0.0) Color = max(Color + GaussianEvalSH(Info.x, SHScale, normalize(Pos - EyeModel)), 0.0);
 	if ((StreamFlags & 2u) != 0 && M.IsSilhouette > 0.0 && M.IsSilhouette < 0.99) GaussianArrivalGlow(Color, M.IsSilhouette, M.LodLevel);
+
+	// SplatPak's own buffer views (r.SplatPak.DebugView), in place of the colour, without the grade
+	if (DebugView == 1u)
+	{
+		Color = float3((W2 >> 16) & 0xFFu, (W2 >> 24) & 0xFFu, W3 & 0xFFu) / 255.0; // The stored colour alone
+	}
+	else if (DebugView == 2u)
+	{
+		// The splat's normal: its shortest axis, in view space, turned to face the eye
+		const uint K = (Scale.x <= Scale.y && Scale.x <= Scale.z) ? 0u : (Scale.y <= Scale.z ? 1u : 2u);
+		float3 N = normalize(mul(float3(R[0][K], R[1][K], R[2][K]), A));
+		if (dot(N, ViewPos) > 0.0) N = -N;
+		Color = N * 0.5 + 0.5;
+	}
+	else if (DebugView == 3u)
+	{
+		Color = (1.0 - saturate(log2(max(ViewPos.z, 10.0) / 10.0) / 10.0)).xxx; // 10 cm white to about 100 m black
+	}
+	else if (DebugView == 4u)
+	{
+		static const float3 LevelColours[8] = { float3(1.0, 0.3, 0.3), float3(1.0, 0.7, 0.2), float3(0.9, 1.0, 0.3), float3(0.3, 1.0, 0.4),
+			float3(0.3, 0.9, 1.0), float3(0.4, 0.5, 1.0), float3(0.8, 0.4, 1.0), float3(1.0, 0.4, 0.8) };
+		Color = LevelColours[min(M.LodLevel, 7u)];
+	}
 
 	// Shrink the quad to where the Gaussian times opacity falls below 1/255
 	const float ClipS = min(1.0, sqrt(max(0.0, log(Opacity * 255.0))) * 0.5);
@@ -434,7 +508,8 @@ void MainVS(uint VertexId : SV_VertexID, out FGaussianVSOut Out)
 	// Unreal's projection flips nothing: clip y is up, as in SplatPak's D3D projection
 	Out.Position = Clip + float4((Corner.x * V1 + Corner.y * V2) * C * ClipS, 0.0, 0.0);
 	Out.UV = (Corner * ClipS) * 0.5 + 0.5;
-	Out.Color = max(GaussianSRGBToLinear(saturate(Color)) * ColourGain + ColourOffset, 0.0) * EmissiveIntensity * PreExposure;
+	Out.Color = DebugView != 0u ? GaussianSRGBToLinear(saturate(Color)) * PreExposure
+		: max(GaussianSRGBToLinear(saturate(Color)) * ColourGain + ColourOffset, 0.0) * EmissiveIntensity * PreExposure;
 	Out.Alpha = Opacity;
 }
 
@@ -444,6 +519,14 @@ void MainPS(FGaussianVSOut In, out float4 OutColor : SV_Target0)
 	const float2 Centered = In.UV * 2.0 - 1.0;
 	const float D = dot(Centered, Centered);
 	if (D > 1.0) discard;
+	// Outline (StreamFlags bit 3, r.SplatPak.Outline): only each Gaussian's elliptical edge, a ring at its own opacity
+	if ((StreamFlags & 4u) != 0)
+	{
+		if (D < 0.6) discard;
+		const float Ring = In.Alpha * 0.85;
+		OutColor = float4(In.Color * Ring, Ring);
+		return;
+	}
 	const float EXP4 = 0.01831563888873418;
 	const float A = (exp(-4.0 * D) - EXP4) / (1.0 - EXP4) * In.Alpha;
 	if (A < 1.0 / 255.0) discard;

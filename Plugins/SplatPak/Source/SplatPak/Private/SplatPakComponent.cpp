@@ -244,7 +244,7 @@ void USplatPakComponent::StartStream()
 		R.m_splatParams.aabbMax = R.m_aabbMax;
 		R.m_splatParams.scaleLog2Min = Levels->ScaleLog2Min;
 		R.m_splatParams.scaleLog2Max = Levels->ScaleLog2Max;
-		R.m_splatParams.shDegree = 0; // The discs draw the stored colour; the harmonics count only in the download
+		R.m_splatParams.shDegree = Levels->SHDegree; // Read only when the asset asked for them (r.SplatPak.SH); else 0, the stored colour
 		R.m_bytesPerRenderPoint = sizeof(Splat::PackedSplatGPU) + Levels->SHRecordBytes;
 		R.settings.splatDrawAsDiscs = true; // Cross-fades as dither weights (blendWeight), which the disc pass draws
 		R.InitStreamingSimulation();
@@ -253,6 +253,14 @@ void USplatPakComponent::StartStream()
 		Source->RecordWords.resize(R.m_unifiedSplats.size() * (sizeof(Splat::PackedSplatGPU) / sizeof(uint32)));
 		if (!R.m_unifiedSplats.empty()) memcpy(Source->RecordWords.data(), R.m_unifiedSplats.data(), R.m_unifiedSplats.size() * sizeof(Splat::PackedSplatGPU));
 		for (size_t L = 0; L < R.m_lodSpacing.size() && L < 8; L++) Source->LevelSpacing[L] = R.m_lodSpacing[L];
+		// The harmonics in the records' unified order, as words for the GPU (SHRecordBytes per splat, bytes packed)
+		if (Levels->SHDegree > 0 && Levels->SHRecordBytes > 0 && R.m_unifiedSH.size() == R.m_unifiedSplats.size() * Levels->SHRecordBytes)
+		{
+			Source->SHWords.assign((R.m_unifiedSH.size() + 3) / 4, 0u);
+			memcpy(Source->SHWords.data(), R.m_unifiedSH.data(), R.m_unifiedSH.size());
+			Source->SHDegree = Levels->SHDegree;
+			Source->SHRecordBytes = Levels->SHRecordBytes;
+		}
 		return !R.m_allStreamChunkPtrs.empty();
 	});
 	PendingRuntime = NewRuntime;
@@ -466,6 +474,13 @@ void USplatPakComponent::ArmLoadingVeil()
 	VeilFillTimer = 0.0f;
 }
 
+void USplatPakComponent::CancelLoadingVeil()
+{
+	bVeilArmed = false;
+	VeilStrength = 0.0f;
+	PublishVeil(0.0f);
+}
+
 void USplatPakComponent::GetLoadingVeil(float& ViewFill, float& Strength) const
 {
 	ViewFill = VeilFill;
@@ -499,14 +514,20 @@ void USplatPakComponent::UpdateLoadingVeil(float DeltaTime)
 			VeilFillTimer -= DeltaTime;
 			if (VeilFillTimer <= 0.0f)
 			{
+				// Lifted once the view draws from the scan's two coarsest levels, all of them resident: the stream is up and
+				// the scene is whole, and the finer levels then refine in view (the finest two held it for 18 s on the palace)
 				VeilFillTimer = 0.25f;
-				int32 Wanted = 0;
-				const float Fill = ComputeViewFill(Wanted, 1);
-				VeilFill = Wanted > 0 ? Fill : (VeilReadySeconds > 1.0f ? 1.0f : 0.0f);
-				if (VeilFill >= 0.95f) bVeilArmed = false; // In: no veil until the next arm
+				const int32 Levels = (int32)FMath::Min(Runtime->m_lodTotalSplats.size(), Runtime->m_lodResidentSplats.size());
+				double Total = 0.0, Resident = 0.0;
+				for (int32 L = FMath::Max(0, Levels - 2); L < Levels; L++)
+				{
+					Total += (double)Runtime->m_lodTotalSplats[L];
+					Resident += (double)Runtime->m_lodResidentSplats[L];
+				}
+				VeilFill = (Runtime->m_frameProduced && Total > 0.0) ? (float)(Resident / Total) : 0.0f;
+				if (VeilFill >= 0.99f) bVeilArmed = false; // In: no veil until the next arm
 			}
-			const float T = FMath::Clamp((VeilFill - 0.60f) / 0.35f, 0.0f, 1.0f);
-			Target = bVeilArmed ? 1.0f - T * T * (3.0f - 2.0f * T) : 0.0f;
+			Target = bVeilArmed ? 1.0f : 0.0f; // Then eased out (below) over about half a second
 		}
 	}
 	else if (bVeilArmed && (VeilSeconds >= VeilTimeout || !bLoadingVeil || !bStreaming))
@@ -646,8 +667,8 @@ void USplatPakComponent::TickComponent(float DeltaTime, ELevelTick TickType, FAc
 		PendingRuntime.Reset();
 		PendingSource.Reset();
 		MarkRenderStateDirty(); // A new proxy takes the stream's records
-		UE_LOG(LogSplatPak, Log, TEXT("%s: streaming %s: %d blocks, %.1f MB"), *GetPathName(), *SplatPakAsset->GetName(),
-			(int32)Runtime->m_allStreamChunkPtrs.size(), Runtime->m_totalStreamBytes / (1024.0f * 1024.0f));
+		UE_LOG(LogSplatPak, Log, TEXT("%s: streaming %s: %d blocks, %.1f MB, harmonics degree %u"), *GetPathName(), *SplatPakAsset->GetName(),
+			(int32)Runtime->m_allStreamChunkPtrs.size(), Runtime->m_totalStreamBytes / (1024.0f * 1024.0f), StreamSource.IsValid() ? StreamSource->SHDegree : 0u);
 	}
 
 	// 2. The view, in model space: the eye, the direction and the view-projection (Unreal's reversed, infinite depth)

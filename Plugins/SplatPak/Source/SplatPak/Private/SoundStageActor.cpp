@@ -9,6 +9,8 @@
 #include "Engine/CollisionProfile.h"
 #include "SplatPakComponent.h"
 #include "SplatPakPedestal.h"
+#include "Camera/PlayerCameraManager.h"
+#include "Kismet/GameplayStatics.h"
 
 DEFINE_LOG_CATEGORY_STATIC(LogSoundStage, Log, All);
 
@@ -93,6 +95,14 @@ void ASoundStageActor::PostLoad()
 void ASoundStageActor::BeginPlay()
 {
 	ReconnectComponents();
+	// A cooked level does not hold them at all (the construction script's components are not saved, and a packaged game
+	// does not run it): build the stage here from its asset, the volumes, boundary and pieces
+	if (Stage && (VolumeComponents.Num() < Stage->Volumes.Num() || PieceComponents.Num() < Stage->Pieces.Num()))
+	{
+		UE_LOG(LogSoundStage, Log, TEXT("%s: building the stage at play (%d of %d volumes, %d of %d pieces in the level)"), *GetName(),
+			VolumeComponents.Num(), Stage->Volumes.Num(), PieceComponents.Num(), Stage->Pieces.Num());
+		Rebuild();
+	}
 	if (Stage)
 	{
 		for (const FSoundStagePiece& Piece : Stage->Pieces)
@@ -119,6 +129,25 @@ void ASoundStageActor::BeginPlay()
 	Super::BeginPlay();
 }
 
+// Pieces with HideBelowEye: hidden while the visitor's eye (the player camera, package frame) is below that height
+void ASoundStageActor::UpdateHiddenPieces()
+{
+	const UWorld* World = GetWorld();
+	if (!Stage || !World || !World->IsGameWorld()) return;
+	const APlayerCameraManager* Camera = UGameplayStatics::GetPlayerCameraManager(this, 0);
+	if (!Camera) return;
+	const double EyeHeight = WorldToPackage(Camera->GetCameraLocation()).Y;
+	for (const FSoundStagePiece& Piece : Stage->Pieces)
+	{
+		if (Piece.HideBelowEye <= -1.0e5f) continue;
+		if (ASplatPakPedestal* Pedestal = GetPiece(Piece.Name))
+		{
+			const bool bHide = EyeHeight < Piece.HideBelowEye;
+			if (Pedestal->IsHidden() != bHide) Pedestal->SetActorHiddenInGame(bHide);
+		}
+	}
+}
+
 void ASoundStageActor::ReleaseStreamOrder(int32 Order)
 {
 	for (const FSoundStagePiece& Piece : Stage->Pieces)
@@ -134,6 +163,7 @@ void ASoundStageActor::ReleaseStreamOrder(int32 Order)
 void ASoundStageActor::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
+	UpdateHiddenPieces();
 	if (StreamStep == INDEX_NONE || !Stage) return;
 	StreamStepSeconds += DeltaSeconds;
 	StreamCheckTimer -= DeltaSeconds;

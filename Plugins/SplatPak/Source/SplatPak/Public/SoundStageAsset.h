@@ -140,6 +140,11 @@ struct SPLATPAK_API FSoundStagePiece
 	// Its sculpture always at the finest level when in view (USplatPakComponent::bAlwaysFinest)
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SoundStage")
 	bool bAlwaysFinest = false;
+
+	// Hidden in play while the visitor's eye is below this height (package metres): a stopgap for a piece the scan's
+	// walls should hide but do not (splat walls write no depth); far below the scene by default, so never
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "SoundStage")
+	float HideBelowEye = -1.0e6f;
 };
 
 UCLASS(BlueprintType, hidecategories = Object)

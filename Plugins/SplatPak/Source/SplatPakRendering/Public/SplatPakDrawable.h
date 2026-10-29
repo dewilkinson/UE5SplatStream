@@ -75,6 +75,11 @@ struct FSplatPakStreamSource
 {
 	std::vector<uint32_t> RecordWords; // 20-byte splat records, five words each
 	float LevelSpacing[8] = {};        // Median point spacing per level (model units); 0 = unknown
+	// The harmonics (view-dependent colour), when read: SHRecordBytes signed bytes per splat in the records' order,
+	// packed into words; SHDegree 0 and no words when not
+	std::vector<uint32_t> SHWords;
+	uint32_t SHDegree = 0;
+	uint32_t SHRecordBytes = 0;
 };
 using FSplatPakStreamSourcePtr = TSharedPtr<const FSplatPakStreamSource, ESPMode::ThreadSafe>;
 
@@ -149,6 +154,7 @@ private:
 	mutable TRefCountPtr<FRDGPooledBuffer> OccluderPositionBuffer; // The occluder mesh (FDecodedLevel), when the package has one
 	mutable TRefCountPtr<FRDGPooledBuffer> OccluderIndexBuffer;
 	mutable TRefCountPtr<FRDGPooledBuffer> StreamRecordsBuffer;   // FSplatPakStreamSource::RecordWords
+	mutable TRefCountPtr<FRDGPooledBuffer> StreamSHBuffer;        // FSplatPakStreamSource::SHWords
 	mutable TRefCountPtr<FRDGPooledBuffer> OccluderColourBuffer;  // The gap fill: the occluder's colours, and the shadow mesh
 	mutable TRefCountPtr<FRDGPooledBuffer> ShadowPositionBuffer;
 	mutable TRefCountPtr<FRDGPooledBuffer> ShadowColourBuffer;
